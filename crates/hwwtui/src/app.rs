@@ -12,6 +12,7 @@ use bundler::{BundleManager, BundleStatus, RemoteBundle};
 use emulators::{trezor::TrezorEmulator, Emulator, EmulatorStatus, WalletType};
 use protocol::trezor_debug::{
     parse_layout_tokens, DebugButton, ParsedLayout, SwipeDirection, TrezorDebugLink,
+    TrezorWireClient,
 };
 use tokio::sync::{mpsc, watch};
 use tracing::{error, info, warn};
@@ -32,6 +33,8 @@ pub enum Action {
     RemoveSelected,
     #[allow(dead_code)]
     RefreshBundleStatus,
+    /// Send Initialize to the emulator (triggers Features response).
+    InitializeDevice,
     /// Press YES on the emulator via the debug link.
     ConfirmSelected,
     /// Press NO on the emulator via the debug link.
@@ -74,6 +77,7 @@ pub struct DevicePane {
     pub download_progress_rx: Option<watch::Receiver<BundleStatus>>,
     /// Debug link client for the Trezor emulator (UDP port 21325).
     pub debug_link: Option<TrezorDebugLink>,
+    pub wire_client: Option<TrezorWireClient>,
     /// Screen title extracted from the last debug-link poll.
     pub screen_title: String,
     /// Screen text content lines from the last debug-link poll.
@@ -110,6 +114,7 @@ impl DevicePane {
             bundle_status,
             download_progress_rx: None,
             debug_link: None,
+            wire_client: None,
             screen_title: String::new(),
             screen_content: Vec::new(),
             screen_buttons: Vec::new(),
@@ -282,6 +287,9 @@ impl App {
                 Action::RefreshBundleStatus => {
                     self.refresh_bundle_status();
                 }
+                Action::InitializeDevice => {
+                    self.wire_initialize().await;
+                }
                 Action::ConfirmSelected => {
                     self.debug_press(DebugButton::Yes).await;
                 }
@@ -441,6 +449,19 @@ impl App {
                     self.panes[idx].push_method("!", format!("Debug link failed: {e}"));
                 }
             }
+
+            // Also connect the wire client to the main port.
+            let wire_port = debug_port - 1; // 21324
+            match TrezorWireClient::connect(wire_port).await {
+                Ok(wc) => {
+                    self.panes[idx].wire_client = Some(wc);
+                    self.panes[idx]
+                        .push_method("→", format!("Wire client connected (UDP :{wire_port})"));
+                }
+                Err(e) => {
+                    self.panes[idx].push_method("!", format!("Wire client failed: {e}"));
+                }
+            }
         }
     }
 
@@ -456,6 +477,7 @@ impl App {
         pane.bridge = None;
         pane.bridge_rx = None;
         pane.debug_link = None;
+        pane.wire_client = None;
         pane.screen_title = String::new();
         pane.screen_content = Vec::new();
         pane.screen_buttons = Vec::new();
@@ -481,6 +503,7 @@ impl App {
             pane.bridge = None;
             pane.bridge_rx = None;
             pane.debug_link = None;
+            pane.wire_client = None;
             if let Some(emu) = &mut pane.emulator {
                 emu.stop().await.ok();
             }
@@ -719,6 +742,24 @@ impl App {
             pane.push_method("!", format!("Debug swipe failed: {e}"));
         }
         pane.debug_link = Some(dl);
+    }
+
+    /// Send Initialize to the emulator's main wire port.
+    async fn wire_initialize(&mut self) {
+        let pane = &mut self.panes[self.selected_tab];
+        let Some(wc) = pane.wire_client.take() else {
+            pane.push_method("!", "Wire client not connected".to_string());
+            return;
+        };
+        match wc.initialize().await {
+            Ok(data) => {
+                pane.push_method("→", format!("Initialize → Features ({} bytes)", data.len()));
+            }
+            Err(e) => {
+                pane.push_method("!", format!("Initialize failed: {e}"));
+            }
+        }
+        pane.wire_client = Some(wc);
     }
 }
 

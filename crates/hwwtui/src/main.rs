@@ -130,6 +130,8 @@ where
                         KeyCode::Char('d') => app.dispatch(Action::DownloadSelected),
                         // Shift+D (uppercase D) → remove bundle.
                         KeyCode::Char('D') => app.dispatch(Action::RemoveSelected),
+                        // Wire protocol: send Initialize to the emulator.
+                        KeyCode::Char('i') => app.dispatch(Action::InitializeDevice),
                         // Debug link: confirm / cancel / swipe.
                         KeyCode::Enter => app.dispatch(Action::ConfirmSelected),
                         KeyCode::Esc => app.dispatch(Action::CancelSelected),

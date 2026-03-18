@@ -172,6 +172,80 @@ impl TrezorDebugLink {
     }
 }
 
+// ── Main-port wire client ─────────────────────────────────────────────────
+
+/// Simple async UDP client for the main Trezor wire port (21324).
+/// Used to send commands that trigger UI flows on the emulator.
+pub struct TrezorWireClient {
+    socket: UdpSocket,
+}
+
+/// Well-known Trezor message types.
+const MSG_INITIALIZE: u16 = 0;
+const MSG_PING: u16 = 1;
+const MSG_GET_FEATURES: u16 = 55;
+
+impl TrezorWireClient {
+    pub async fn connect(port: u16) -> anyhow::Result<Self> {
+        let addr: SocketAddr = format!("127.0.0.1:{port}").parse()?;
+        let socket = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .context("Failed to bind wire UDP socket")?;
+        socket
+            .connect(addr)
+            .await
+            .context("Failed to connect wire UDP socket")?;
+        Ok(Self { socket })
+    }
+
+    /// Send Initialize (msg type 0, empty payload).
+    /// Returns the Features response as raw protobuf bytes.
+    pub async fn initialize(&self) -> anyhow::Result<Vec<u8>> {
+        self.send_and_recv(MSG_INITIALIZE, &[]).await
+    }
+
+    /// Send Ping (msg type 1, empty payload).
+    pub async fn ping(&self) -> anyhow::Result<Vec<u8>> {
+        self.send_and_recv(MSG_PING, &[]).await
+    }
+
+    /// Send GetFeatures (msg type 55, empty payload).
+    pub async fn get_features(&self) -> anyhow::Result<Vec<u8>> {
+        self.send_and_recv(MSG_GET_FEATURES, &[]).await
+    }
+
+    async fn send_and_recv(&self, msg_type: u16, payload: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let packets = frame_message(msg_type, payload);
+        for pkt in &packets {
+            self.socket.send(pkt).await.context("Wire send failed")?;
+        }
+
+        // Read response with timeout.
+        let mut buf = [0u8; 64];
+        let recv_fut = async {
+            let n = self.socket.recv(&mut buf).await?;
+            if n < 9 || buf[0] != 0x3F || buf[1] != 0x23 || buf[2] != 0x23 {
+                anyhow::bail!("Invalid wire response");
+            }
+            let resp_type = u16::from_be_bytes([buf[3], buf[4]]);
+            let payload_len = u32::from_be_bytes([buf[5], buf[6], buf[7], buf[8]]) as usize;
+            let mut data = Vec::with_capacity(payload_len);
+            data.extend_from_slice(&buf[9..n.min(64)]);
+            while data.len() < payload_len {
+                let n = self.socket.recv(&mut buf).await?;
+                data.extend_from_slice(&buf[1..n.min(64)]);
+            }
+            data.truncate(payload_len);
+            tracing::debug!(resp_type, payload_len, "Wire response received");
+            Ok(data)
+        };
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), recv_fut)
+            .await
+            .context("Wire response timed out")?
+    }
+}
+
 // ── Internal types ────────────────────────────────────────────────────────────
 
 struct RawMessage {
