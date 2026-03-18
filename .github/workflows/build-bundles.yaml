@@ -56,9 +56,12 @@ jobs:
       - name: Build Trezor emulator
         working-directory: trezor-firmware
         run: |
-          # Install Python deps via pipenv
+          # Install Python deps at the repo root first (trezor uses a
+          # top-level Pipfile that core/Makefile expects).
+          pip3 install --user pipenv
+          pipenv install --dev
+          # Now build the unix emulator inside the pipenv environment.
           cd core
-          pipenv install
           pipenv run make build_unix
 
       - name: Verify binary exists
@@ -120,6 +123,8 @@ jobs:
           repository: BitBoxSwiss/bitbox02-firmware
           path: bitbox02-firmware
           submodules: recursive
+          # Full history needed: CMake derives the version from git tags
+          fetch-depth: 0
 
       - name: Install system dependencies
         run: |
@@ -201,6 +206,9 @@ jobs:
           repository: Coldcard/firmware
           path: coldcard-firmware
           submodules: recursive
+          # Some submodules (e.g. lwip on savannah.gnu.org) don't support
+          # shallow clones, so we need full depth.
+          fetch-depth: 0
 
       - name: Install system dependencies
         run: |
