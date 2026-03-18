@@ -76,10 +76,7 @@ async fn main() -> anyhow::Result<()> {
 
 // ── Event loop ────────────────────────────────────────────────────────────────
 
-async fn run_event_loop<B>(
-    terminal: &mut Terminal<B>,
-    app: &mut App,
-) -> anyhow::Result<()>
+async fn run_event_loop<B>(terminal: &mut Terminal<B>, app: &mut App) -> anyhow::Result<()>
 where
     B: ratatui::backend::Backend,
     B::Error: Send + Sync + 'static,

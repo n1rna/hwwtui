@@ -92,7 +92,8 @@ impl BundleStorage {
             .with_context(|| format!("failed to create bundle dir: {}", dir.display()))?;
 
         let path = self.manifest_path(wallet_type);
-        let json = serde_json::to_string_pretty(manifest).context("failed to serialize manifest")?;
+        let json =
+            serde_json::to_string_pretty(manifest).context("failed to serialize manifest")?;
 
         // Write to a temp file in the same directory then rename for atomicity.
         let tmp = path.with_extension("json.tmp");

@@ -21,9 +21,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
-use crate::uhid::{
-    VirtualHidDevice, TREZOR_HID_REPORT_DESCRIPTOR, TREZOR_PID, TREZOR_VID,
-};
+use crate::uhid::{VirtualHidDevice, TREZOR_HID_REPORT_DESCRIPTOR, TREZOR_PID, TREZOR_VID};
 use crate::{Bridge, Direction, InterceptedMessage};
 use protocol::trezor::decode_packet;
 
@@ -67,7 +65,9 @@ impl TrezorBridge {
     /// }
     /// ```
     pub fn new(host: &str, port: u16) -> Self {
-        let addr: SocketAddr = format!("{host}:{port}").parse().expect("invalid emulator address");
+        let addr: SocketAddr = format!("{host}:{port}")
+            .parse()
+            .expect("invalid emulator address");
         Self {
             emulator_addr: addr,
             running: Arc::new(AtomicBool::new(false)),
@@ -135,8 +135,7 @@ impl Bridge for TrezorBridge {
             //
             // We pass the UHID device into this task via a blocking channel so
             // the write happens on a dedicated blocking thread.
-            let (uhid_write_tx, mut uhid_write_rx) =
-                mpsc::unbounded_channel::<Vec<u8>>();
+            let (uhid_write_tx, mut uhid_write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
             // Blocking thread: drain the write queue and send to UHID.
             let mut uhid_dev = uhid_device;

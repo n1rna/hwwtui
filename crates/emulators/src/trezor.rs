@@ -97,7 +97,10 @@ impl TrezorEmulator {
 
     /// Returns the path to the `micropython` binary inside `firmware_path`.
     fn micropython_path(&self) -> PathBuf {
-        self.firmware_path.join("build").join("unix").join("trezor-emu-core")
+        self.firmware_path
+            .join("build")
+            .join("unix")
+            .join("trezor-emu-core")
     }
 
     /// Probe the UDP port once synchronously; used during the startup poll.
@@ -120,8 +123,9 @@ impl TrezorEmulator {
         let mut buf = [0u8; 1];
         match sock.recv_from(&mut buf) {
             Ok(_) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                || e.kind() == std::io::ErrorKind::TimedOut =>
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
             {
                 // Timeout => port is open but emulator sent nothing back; that
                 // is fine — it is running.
@@ -166,7 +170,10 @@ impl Emulator for TrezorEmulator {
     }
 
     async fn start(&mut self) -> anyhow::Result<()> {
-        if matches!(self.status, EmulatorStatus::Running | EmulatorStatus::Starting) {
+        if matches!(
+            self.status,
+            EmulatorStatus::Running | EmulatorStatus::Starting
+        ) {
             return Ok(());
         }
 
@@ -208,11 +215,13 @@ impl Emulator for TrezorEmulator {
             info!("Trezor emulator is ready on UDP :{}", self.port);
             self.status = EmulatorStatus::Running;
         } else {
-            warn!("Trezor emulator did not become ready within {:?}", STARTUP_TIMEOUT);
-            // Keep the child alive; the user can retry health_check later.
-            self.status = EmulatorStatus::Error(
-                format!("UDP :{} not reachable after startup", self.port),
+            warn!(
+                "Trezor emulator did not become ready within {:?}",
+                STARTUP_TIMEOUT
             );
+            // Keep the child alive; the user can retry health_check later.
+            self.status =
+                EmulatorStatus::Error(format!("UDP :{} not reachable after startup", self.port));
         }
 
         Ok(())

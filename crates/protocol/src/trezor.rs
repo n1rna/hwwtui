@@ -35,7 +35,7 @@ pub fn message_type_name(id: u16) -> &'static str {
         10 => "Entropy",
         16 => "LoadDevice",
         17 => "ResetDevice",
-        18 => "Features",       // GetFeatures response (older numbering)
+        18 => "Features", // GetFeatures response (older numbering)
         19 => "GetFeatures",
         20 => "ButtonRequest",
         21 => "ButtonAck",
@@ -114,7 +114,11 @@ pub fn decode_packet(data: &[u8]) -> Result<DecodedMessage, DecodeError> {
     let type_name = message_type_name(msg_type_id);
 
     // Hex dump the entire raw report for the raw-messages panel.
-    let raw_hex = data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+    let raw_hex = data
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     Ok(DecodedMessage {
         wallet_type: "Trezor".to_string(),
@@ -171,13 +175,19 @@ mod tests {
 
     #[test]
     fn too_short_errors() {
-        assert!(matches!(decode_packet(&[0x3f, 0x23, 0x23]), Err(DecodeError::TooShort(_))));
+        assert!(matches!(
+            decode_packet(&[0x3f, 0x23, 0x23]),
+            Err(DecodeError::TooShort(_))
+        ));
     }
 
     #[test]
     fn bad_magic_errors() {
         let pkt = vec![0u8; 64];
-        assert!(matches!(decode_packet(&pkt), Err(DecodeError::BadMagic(..))));
+        assert!(matches!(
+            decode_packet(&pkt),
+            Err(DecodeError::BadMagic(..))
+        ));
     }
 
     #[test]

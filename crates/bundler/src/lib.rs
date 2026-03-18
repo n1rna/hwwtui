@@ -125,10 +125,7 @@ impl BundleManager {
     pub async fn list_remote(&self) -> anyhow::Result<Vec<RemoteBundle>> {
         let platform = download::current_platform();
         let all = self.downloader.fetch_available().await?;
-        let filtered = all
-            .into_iter()
-            .filter(|b| b.platform == platform)
-            .collect();
+        let filtered = all.into_iter().filter(|b| b.platform == platform).collect();
         Ok(filtered)
     }
 
@@ -185,9 +182,8 @@ impl BundleManager {
         let bundle_dir = self.storage.bundle_dir(bundle.wallet_type);
 
         // Ensure the bundle directory exists before we start.
-        std::fs::create_dir_all(&bundle_dir).with_context(|| {
-            format!("failed to create bundle dir: {}", bundle_dir.display())
-        })?;
+        std::fs::create_dir_all(&bundle_dir)
+            .with_context(|| format!("failed to create bundle dir: {}", bundle_dir.display()))?;
 
         // The tarball lands in the bundle dir temporarily.
         let archive_path = bundle_dir.join(&bundle.asset_name);
@@ -333,10 +329,7 @@ fn dir_size(dir: &std::path::Path) -> anyhow::Result<u64> {
 fn walkdir(
     dir: &std::path::Path,
 ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<std::fs::DirEntry>>> {
-    fn collect(
-        dir: &std::path::Path,
-        out: &mut Vec<anyhow::Result<std::fs::DirEntry>>,
-    ) {
+    fn collect(dir: &std::path::Path, out: &mut Vec<anyhow::Result<std::fs::DirEntry>>) {
         if let Ok(rd) = std::fs::read_dir(dir) {
             for entry in rd.flatten() {
                 let path = entry.path();
@@ -389,9 +382,7 @@ fn current_timestamp() -> String {
     // Gregorian calendar computation from day count.
     let (year, month, day) = days_to_ymd(days_since_epoch);
 
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z"
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
 }
 
 /// Convert days since Unix epoch (1970-01-01) to (year, month, day).

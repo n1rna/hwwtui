@@ -45,12 +45,7 @@ impl VirtualHidDevice {
     ///
     /// Returns an error if `/dev/uhid` cannot be opened (likely a permissions
     /// problem — see the module-level note on udev rules).
-    pub fn new(
-        vid: u16,
-        pid: u16,
-        name: &str,
-        report_descriptor: &[u8],
-    ) -> anyhow::Result<Self> {
+    pub fn new(vid: u16, pid: u16, name: &str, report_descriptor: &[u8]) -> anyhow::Result<Self> {
         let params = CreateParams {
             name: name.to_string(),
             phys: String::new(),
@@ -75,7 +70,10 @@ impl VirtualHidDevice {
 
         debug!(name, vid, pid, "UHID device created");
 
-        Ok(Self { inner: device, name: name.to_string() })
+        Ok(Self {
+            inner: device,
+            name: name.to_string(),
+        })
     }
 
     /// Send an Input report from the (virtual) device to the host.
@@ -178,21 +176,21 @@ impl VirtualHidDevice {
 /// 64-byte Input and Output reports, no report ID.
 pub const TREZOR_HID_REPORT_DESCRIPTOR: &[u8] = &[
     0x06, 0xd0, 0xf1, // Usage Page (FIDO Alliance = 0xF1D0)
-    0x09, 0x01,       // Usage (1)
-    0xa1, 0x01,       // Collection (Application)
-    0x09, 0x20,       //   Usage (Input Report Data)
-    0x15, 0x00,       //   Logical Minimum (0)
+    0x09, 0x01, // Usage (1)
+    0xa1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
     0x26, 0xff, 0x00, //   Logical Maximum (255)
-    0x75, 0x08,       //   Report Size (8 bits)
-    0x95, 0x40,       //   Report Count (64 bytes)
-    0x81, 0x02,       //   Input (Data, Variable, Absolute)
-    0x09, 0x21,       //   Usage (Output Report Data)
-    0x15, 0x00,       //   Logical Minimum (0)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
     0x26, 0xff, 0x00, //   Logical Maximum (255)
-    0x75, 0x08,       //   Report Size (8 bits)
-    0x95, 0x40,       //   Report Count (64 bytes)
-    0x91, 0x02,       //   Output (Data, Variable, Absolute)
-    0xc0,             // End Collection
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xc0, // End Collection
 ];
 
 /// Trezor T USB Vendor ID.

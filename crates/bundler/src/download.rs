@@ -60,10 +60,7 @@ impl GithubDownloader {
     /// Returns an error if GitHub responds with a non-200 status (including
     /// 403 rate-limit responses).
     pub async fn fetch_available(&self) -> anyhow::Result<Vec<RemoteBundle>> {
-        let url = format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            self.repo
-        );
+        let url = format!("https://api.github.com/repos/{}/releases/latest", self.repo);
 
         tracing::debug!(url = %url, "fetching latest release");
 
@@ -176,7 +173,9 @@ impl GithubDownloader {
             let _ = progress_tx.send(BundleStatus::Downloading { progress_pct: pct });
         }
 
-        file.flush().await.context("failed to flush download file")?;
+        file.flush()
+            .await
+            .context("failed to flush download file")?;
         drop(file);
 
         std::fs::rename(&tmp, dest)
@@ -222,7 +221,10 @@ pub async fn extract_tarball(archive_path: &Path, dest_dir: &Path) -> anyhow::Re
 
         // Unpack but strip the top-level directory if there is one, so all
         // contents land directly in dest_dir.
-        for entry in archive.entries().context("failed to read archive entries")? {
+        for entry in archive
+            .entries()
+            .context("failed to read archive entries")?
+        {
             let mut entry = entry.context("failed to read archive entry")?;
             let entry_path = entry
                 .path()
@@ -376,11 +378,7 @@ mod tests {
 
         for (name, expected_wallet, expected_platform) in &cases {
             let result = parse_asset_name(name);
-            assert!(
-                result.is_some(),
-                "failed to parse asset name: {}",
-                name
-            );
+            assert!(result.is_some(), "failed to parse asset name: {}", name);
             let (wallet, platform) = result.unwrap();
             assert_eq!(wallet, *expected_wallet, "wallet mismatch for {}", name);
             assert_eq!(
@@ -394,10 +392,10 @@ mod tests {
     #[test]
     fn parse_unknown_assets_return_none() {
         let bad = [
-            "trezor-linux-x86_64.tar.gz",          // missing hwwtui- prefix
-            "hwwtui-trezor-linux-x86_64.zip",       // wrong extension
-            "hwwtui-unknown-linux-x86_64.tar.gz",   // unrecognised wallet
-            "hwwtui-trezor.tar.gz",                 // missing platform
+            "trezor-linux-x86_64.tar.gz",         // missing hwwtui- prefix
+            "hwwtui-trezor-linux-x86_64.zip",     // wrong extension
+            "hwwtui-unknown-linux-x86_64.tar.gz", // unrecognised wallet
+            "hwwtui-trezor.tar.gz",               // missing platform
         ];
         for name in &bad {
             assert!(

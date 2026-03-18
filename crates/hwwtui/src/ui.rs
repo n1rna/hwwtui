@@ -52,11 +52,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     // Outer vertical split: tab bar / body.
-    let [tab_area, body_area] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Fill(1),
-    ])
-    .areas(area);
+    let [tab_area, body_area] =
+        Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(area);
 
     render_tabs(frame, app, tab_area);
     render_body(frame, app, body_area);
@@ -153,11 +150,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
 
 // ── Screen mirror ─────────────────────────────────────────────────────────────
 
-fn render_screen_mirror(
-    frame: &mut Frame,
-    pane: &crate::app::DevicePane,
-    area: Rect,
-) {
+fn render_screen_mirror(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
     let title = format!(" {} — Screen ", pane.label);
     let inner_style = if pane.is_running() {
         Style::default().fg(Color::White)
@@ -224,11 +217,7 @@ fn render_screen_mirror(
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 
-fn render_controls(
-    frame: &mut Frame,
-    pane: &crate::app::DevicePane,
-    area: Rect,
-) {
+fn render_controls(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
     let status_str = pane.status_str();
     let status_color = match pane.emulator.as_ref().map(|e| e.status()) {
         Some(EmulatorStatus::Running) => COLOR_RUNNING,
@@ -237,7 +226,12 @@ fn render_controls(
         _ => COLOR_STOPPED,
     };
 
-    let bridge_str = if pane.bridge.as_ref().map(|b| b.is_running()).unwrap_or(false) {
+    let bridge_str = if pane
+        .bridge
+        .as_ref()
+        .map(|b| b.is_running())
+        .unwrap_or(false)
+    {
         format!("/dev/uhid → {}", pane.transport_label)
     } else {
         "—".to_string()
@@ -247,24 +241,57 @@ fn render_controls(
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("[s] Start  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("[x] Stop  ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled("[r] Reset  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[s] Start  ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[x] Stop  ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[r] Reset  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("[Tab] Next  ", Style::default().fg(Color::Cyan)),
             Span::styled("[q] Quit", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("[d] Download  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("[D] Remove", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[d] Download  ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[D] Remove",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  Bundle:     "),
-            Span::styled(&bundle_str, Style::default().fg(bundle_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &bundle_str,
+                Style::default()
+                    .fg(bundle_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![
             Span::raw("  Status:     "),
-            Span::styled(&status_str, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &status_str,
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![
             Span::raw("  Transport:  "),
@@ -276,22 +303,19 @@ fn render_controls(
         ]),
     ];
 
-    let para = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title(" Controls "));
+    let para =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Controls "));
     frame.render_widget(para, area);
 }
 
 // ── Download progress bar ─────────────────────────────────────────────────────
 
-fn render_download_progress(
-    frame: &mut Frame,
-    pane: &crate::app::DevicePane,
-    area: Rect,
-) {
+fn render_download_progress(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
     let (pct, label) = match &pane.bundle_status {
-        BundleStatus::Downloading { progress_pct } => {
-            (*progress_pct, format!(" Downloading {}… {}% ", pane.label, progress_pct))
-        }
+        BundleStatus::Downloading { progress_pct } => (
+            *progress_pct,
+            format!(" Downloading {}… {}% ", pane.label, progress_pct),
+        ),
         _ => (0, " Download complete ".to_string()),
     };
 
@@ -310,11 +334,7 @@ fn render_download_progress(
 
 // ── Method log ────────────────────────────────────────────────────────────────
 
-fn render_method_log(
-    frame: &mut Frame,
-    pane: &crate::app::DevicePane,
-    area: Rect,
-) {
+fn render_method_log(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
     let max_items = area.height.saturating_sub(2) as usize;
     let items: Vec<ListItem> = pane
         .method_log
@@ -325,24 +345,26 @@ fn render_method_log(
         .map(|(dir, text)| {
             let (prefix, color) = direction_style(dir);
             ListItem::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    prefix,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(format!(" {text}"), Style::default().fg(Color::White)),
             ]))
         })
         .collect();
 
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Method Calls "));
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Method Calls "),
+    );
     frame.render_widget(list, area);
 }
 
 // ── Raw log ───────────────────────────────────────────────────────────────────
 
-fn render_raw_log(
-    frame: &mut Frame,
-    pane: &crate::app::DevicePane,
-    area: Rect,
-) {
+fn render_raw_log(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
     let max_items = area.height.saturating_sub(2) as usize;
     let items: Vec<ListItem> = pane
         .raw_log
@@ -353,14 +375,20 @@ fn render_raw_log(
         .map(|(dir, hex)| {
             let (prefix, color) = direction_style(dir);
             ListItem::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    prefix,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(format!(" {hex}"), Style::default().fg(Color::DarkGray)),
             ]))
         })
         .collect();
 
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Raw Messages "));
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Raw Messages "),
+    );
     frame.render_widget(list, area);
 }
 
@@ -370,18 +398,18 @@ fn render_raw_log(
 fn bundle_status_display(status: &BundleStatus) -> (String, Color) {
     match status {
         BundleStatus::NotInstalled => ("Not installed".to_string(), COLOR_BUNDLE_MISSING),
-        BundleStatus::Downloading { progress_pct } => {
-            (format!("Downloading {progress_pct}%"), COLOR_BUNDLE_PROGRESS)
-        }
-        BundleStatus::Installed { version, size_bytes } => {
-            (
-                format!("{version} ({})", format_bytes(*size_bytes)),
-                COLOR_BUNDLE_OK,
-            )
-        }
-        BundleStatus::Failed { error } => {
-            (format!("Failed: {error}"), COLOR_BUNDLE_FAIL)
-        }
+        BundleStatus::Downloading { progress_pct } => (
+            format!("Downloading {progress_pct}%"),
+            COLOR_BUNDLE_PROGRESS,
+        ),
+        BundleStatus::Installed {
+            version,
+            size_bytes,
+        } => (
+            format!("{version} ({})", format_bytes(*size_bytes)),
+            COLOR_BUNDLE_OK,
+        ),
+        BundleStatus::Failed { error } => (format!("Failed: {error}"), COLOR_BUNDLE_FAIL),
     }
 }
 

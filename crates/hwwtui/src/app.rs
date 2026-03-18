@@ -278,7 +278,10 @@ impl App {
                 _ => {
                     // Other devices: check bundle but no emulator implemented yet.
                     let wallet_type = device_kind_to_wallet_type(pane.kind);
-                    if matches!(self.bundle_manager.status(wallet_type), BundleStatus::NotInstalled) {
+                    if matches!(
+                        self.bundle_manager.status(wallet_type),
+                        BundleStatus::NotInstalled
+                    ) {
                         pane.push_method(
                             "!",
                             "No bundle installed. Press [d] to download the firmware bundle."
@@ -397,7 +400,8 @@ impl App {
         let manager = Arc::clone(&self.bundle_manager);
 
         // Create the watch channel for progress updates.
-        let (progress_tx, progress_rx) = watch::channel(BundleStatus::Downloading { progress_pct: 0 });
+        let (progress_tx, progress_rx) =
+            watch::channel(BundleStatus::Downloading { progress_pct: 0 });
         pane.download_progress_rx = Some(progress_rx);
 
         tokio::spawn(async move {
@@ -471,7 +475,8 @@ impl App {
     pub fn poll_download_progress(&mut self) {
         for pane in &mut self.panes {
             // Borrow the receiver separately to satisfy the borrow checker.
-            let new_status: Option<BundleStatus> = if let Some(rx) = &mut pane.download_progress_rx {
+            let new_status: Option<BundleStatus> = if let Some(rx) = &mut pane.download_progress_rx
+            {
                 // `has_changed` is true if a new value was sent since last borrow.
                 if rx.has_changed().unwrap_or(false) {
                     Some(rx.borrow_and_update().clone())

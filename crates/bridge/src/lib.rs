@@ -58,7 +58,10 @@ pub struct HidReport {
 
 impl HidReport {
     pub fn new(data: Vec<u8>) -> Self {
-        Self { data, timestamp: Instant::now() }
+        Self {
+            data,
+            timestamp: Instant::now(),
+        }
     }
 }
 
@@ -93,8 +96,17 @@ pub struct InterceptedMessage {
 
 impl InterceptedMessage {
     pub fn new(direction: Direction, data: &[u8], decoded: Option<String>) -> Self {
-        let raw_hex = data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
-        Self { direction, raw_hex, decoded, timestamp: Instant::now() }
+        let raw_hex = data
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        Self {
+            direction,
+            raw_hex,
+            decoded,
+            timestamp: Instant::now(),
+        }
     }
 }
 

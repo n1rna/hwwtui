@@ -68,8 +68,8 @@ impl Config {
     /// | `TREZOR_PROFILE_DIR` | `/tmp/hwwtui-trezor` |
     /// | `TREZOR_PORT` | `21324` |
     pub fn from_env_or_defaults() -> Self {
-        let github_repo = std::env::var("HWWTUI_GITHUB_REPO")
-            .unwrap_or_else(|_| "n1rna/hwwtui".to_string());
+        let github_repo =
+            std::env::var("HWWTUI_GITHUB_REPO").unwrap_or_else(|_| "n1rna/hwwtui".to_string());
 
         let trezor_cfg = TrezorConfig {
             firmware_path: std::env::var("TREZOR_FIRMWARE_PATH")
@@ -107,6 +107,9 @@ impl Config {
             })
             .collect();
 
-        Self { devices, github_repo }
+        Self {
+            devices,
+            github_repo,
+        }
     }
 }
