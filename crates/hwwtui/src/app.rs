@@ -683,18 +683,6 @@ impl App {
 
         match dl.get_layout().await {
             Ok(tokens) => {
-                if !tokens.is_empty() {
-                    tracing::debug!(
-                        token_count = tokens.len(),
-                        first_token_len = tokens.first().map(|t| t.len()).unwrap_or(0),
-                        "Debug link got tokens"
-                    );
-                    // Log first token for debugging (truncated)
-                    if let Some(first) = tokens.first() {
-                        let preview: String = first.chars().take(200).collect();
-                        tracing::debug!(preview = %preview, "First token content");
-                    }
-                }
                 let parsed: ParsedLayout = parse_layout_tokens(&tokens);
                 pane.screen_title = parsed.title;
                 pane.screen_content = parsed.lines;

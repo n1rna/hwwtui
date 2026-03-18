@@ -369,38 +369,59 @@ pub fn parse_layout_tokens(tokens: &[String]) -> ParsedLayout {
     };
 
     let mut layout = ParsedLayout::default();
-    extract_from_value(&value, &mut layout, true);
+    extract_from_value(&value, &mut layout);
     layout
 }
 
 /// Recursively extract displayable text from a JSON value into `layout`.
-/// `top_level` is true only for the root call.
-fn extract_from_value(value: &serde_json::Value, layout: &mut ParsedLayout, top_level: bool) {
+fn extract_from_value(value: &serde_json::Value, layout: &mut ParsedLayout) {
     let Some(obj) = value.as_object() else {
         return;
     };
 
-    // Extract title from this object level.
-    if top_level {
+    let component = obj.get("component").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Extract title: try "title", then "label" (used by Homescreen), then "component" as fallback.
+    if layout.title.is_empty() {
         if let Some(t) = obj.get("title").and_then(|v| v.as_str()) {
             if !t.is_empty() {
                 layout.title = t.to_string();
             }
         }
+    }
+    if layout.title.is_empty() {
         if let Some(t) = obj.get("subtitle").and_then(|v| v.as_str()) {
-            if !t.is_empty() && layout.title.is_empty() {
+            if !t.is_empty() {
                 layout.title = t.to_string();
             }
         }
+    }
+    // For simple screens like Homescreen, use "label" as title.
+    if layout.title.is_empty() {
+        if let Some(t) = obj.get("label").and_then(|v| v.as_str()) {
+            if !t.is_empty() {
+                layout.title = t.to_string();
+            }
+        }
+    }
+    // Last resort: use the component name itself.
+    if layout.title.is_empty() && !component.is_empty() {
+        layout.title = component.to_string();
     }
 
     // Buttons object: {"left": {"text": "..."}, "right": {"text": "..."}}
     if let Some(buttons) = obj.get("buttons").and_then(|v| v.as_object()) {
         for btn_key in &["left", "middle", "right"] {
-            if let Some(btn) = buttons.get(*btn_key).and_then(|v| v.as_object()) {
-                if let Some(txt) = btn.get("text").and_then(|v| v.as_str()) {
-                    if !txt.is_empty() {
-                        layout.buttons.push(txt.to_string());
+            if let Some(btn) = buttons.get(*btn_key) {
+                // Button can be {"text": "..."} or just a string
+                let txt = btn
+                    .as_object()
+                    .and_then(|b| b.get("text"))
+                    .and_then(|v| v.as_str())
+                    .or_else(|| btn.as_str());
+                if let Some(t) = txt {
+                    if !t.is_empty() {
+                        layout.buttons.push(t.to_string());
                     }
                 }
             }
@@ -425,29 +446,47 @@ fn extract_from_value(value: &serde_json::Value, layout: &mut ParsedLayout, top_
         }
     }
 
-    // Recurse into "content" sub-object.
-    if let Some(content) = obj.get("content") {
-        extract_from_value(content, layout, false);
-    }
-
-    // Recurse into "items" array (e.g. address confirmation pages).
-    if let Some(items) = obj.get("items").and_then(|v| v.as_array()) {
-        for item in items {
-            extract_from_value(item, layout, false);
+    // "description" field (used by some confirmation screens)
+    if let Some(desc) = obj.get("description").and_then(|v| v.as_str()) {
+        if !desc.is_empty() {
+            layout.lines.push(desc.to_string());
         }
     }
 
-    // Plain "text" field at any level.
+    // Plain "text" field
     if let Some(txt) = obj.get("text").and_then(|v| v.as_str()) {
-        if !txt.is_empty() && !top_level {
+        if !txt.is_empty() {
             layout.lines.push(txt.to_string());
         }
     }
 
-    // "value" field (e.g. address display).
+    // "value" field (e.g. address display, amount)
     if let Some(val) = obj.get("value").and_then(|v| v.as_str()) {
         if !val.is_empty() {
             layout.lines.push(val.to_string());
+        }
+    }
+
+    // "notification" field
+    if let Some(notif) = obj.get("notification").and_then(|v| v.as_str()) {
+        if !notif.is_empty() {
+            layout.lines.push(format!("[{notif}]"));
+        }
+    }
+
+    // Recurse into known sub-objects
+    for key in &["content", "page", "inner"] {
+        if let Some(sub) = obj.get(*key) {
+            extract_from_value(sub, layout);
+        }
+    }
+
+    // Recurse into "items" / "pages" arrays
+    for key in &["items", "pages"] {
+        if let Some(arr) = obj.get(*key).and_then(|v| v.as_array()) {
+            for item in arr {
+                extract_from_value(item, layout);
+            }
         }
     }
 }
