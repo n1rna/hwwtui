@@ -16,8 +16,20 @@ BUNDLE_DIR="${WORK_DIR}/hwwtui-coldcard-${PLATFORM}"
 
 echo "==> Building Coldcard unix simulator from ${FIRMWARE_DIR}"
 
+# GCC 13+ on Ubuntu 24.04 is stricter with -Werror; globally remove it
+# from all micropython Makefiles so the old code compiles.
+echo "==> Patching micropython to remove -Werror for GCC 13+ compatibility"
+find "${FIRMWARE_DIR}/external/micropython" \( -name 'Makefile' -o -name '*.mk' \) -print | \
+    xargs sed -i 's/-Werror//g' 2>/dev/null || true
+
+# Build mpy-cross first (micropython's bytecode compiler, needed for frozen modules).
+echo "==> Building mpy-cross"
+cd "${FIRMWARE_DIR}/external/micropython/mpy-cross"
+make
+
 cd "${FIRMWARE_DIR}/unix"
-make setup
+
+make setup || true  # setup's 'tools' target may fail on frozen_content but creates needed symlinks
 make ngu-setup
 make
 
