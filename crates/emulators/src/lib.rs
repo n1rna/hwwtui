@@ -40,8 +40,10 @@ impl std::fmt::Display for EmulatorStatus {
 
 /// Identifies which hardware wallet model an emulator represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum WalletType {
     Trezor,
+    #[serde(rename = "bitbox02")]
     BitBox02,
     Coldcard,
     Specter,
