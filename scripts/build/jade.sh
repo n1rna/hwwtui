@@ -10,17 +10,18 @@
 set -euo pipefail
 
 BUNDLE_VERSION="${BUNDLE_VERSION:-dev}"
-FIRMWARE_DIR="${FIRMWARE_DIR:-jade-firmware}"
+FIRMWARE_DIR="$(cd "${FIRMWARE_DIR:-jade-firmware}" && pwd)"
+WORK_DIR="$(pwd)"
 PLATFORM="linux-x86_64"
-BUNDLE_DIR="hwwtui-jade-${PLATFORM}"
+BUNDLE_DIR="${WORK_DIR}/hwwtui-jade-${PLATFORM}"
 
 echo "==> Building Jade QEMU Docker image from ${FIRMWARE_DIR}"
 
 cd "${FIRMWARE_DIR}"
 docker build -t jade-qemu -f Dockerfile.qemu .
-cd ..
 
 echo "==> Exporting Docker image"
+cd "${WORK_DIR}"
 docker save jade-qemu | gzip > jade-qemu-image.tar.gz
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
@@ -64,5 +65,5 @@ cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
 }
 EOF
 
-tar czf "hwwtui-jade-${PLATFORM}.tar.gz" "${BUNDLE_DIR}"
+tar czf "${WORK_DIR}/hwwtui-jade-${PLATFORM}.tar.gz" -C "${WORK_DIR}" "hwwtui-jade-${PLATFORM}"
 echo "==> Done: hwwtui-jade-${PLATFORM}.tar.gz"

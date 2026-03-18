@@ -9,20 +9,20 @@
 set -euo pipefail
 
 BUNDLE_VERSION="${BUNDLE_VERSION:-dev}"
-FIRMWARE_DIR="${FIRMWARE_DIR:-bitbox02-firmware}"
+FIRMWARE_DIR="$(cd "${FIRMWARE_DIR:-bitbox02-firmware}" && pwd)"
+WORK_DIR="$(pwd)"
 PLATFORM="linux-x86_64"
-BUNDLE_DIR="hwwtui-bitbox02-${PLATFORM}"
+BUNDLE_DIR="${WORK_DIR}/hwwtui-bitbox02-${PLATFORM}"
 
 echo "==> Building BitBox02 simulator from ${FIRMWARE_DIR}"
 
-cd "${FIRMWARE_DIR}"
-mkdir -p build-sim && cd build-sim
-cmake .. \
+mkdir -p "${FIRMWARE_DIR}/build-sim"
+cd "${FIRMWARE_DIR}/build-sim"
+cmake "${FIRMWARE_DIR}" \
     -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TYPE=simulator
 ninja
-cd ../..
 
 # Locate the simulator binary (name varies across versions).
 BIN=$(find "${FIRMWARE_DIR}/build-sim" -type f \( -name 'bitbox02_simulator*' -o -name 'simulator' \) | head -1)
@@ -34,6 +34,7 @@ fi
 echo "==> Found simulator binary: ${BIN}"
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
+cd "${WORK_DIR}"
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"
 
@@ -51,5 +52,5 @@ cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
 }
 EOF
 
-tar czf "hwwtui-bitbox02-${PLATFORM}.tar.gz" "${BUNDLE_DIR}"
+tar czf "${WORK_DIR}/hwwtui-bitbox02-${PLATFORM}.tar.gz" -C "${WORK_DIR}" "hwwtui-bitbox02-${PLATFORM}"
 echo "==> Done: hwwtui-bitbox02-${PLATFORM}.tar.gz"

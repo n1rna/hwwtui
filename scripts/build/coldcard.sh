@@ -9,9 +9,10 @@
 set -euo pipefail
 
 BUNDLE_VERSION="${BUNDLE_VERSION:-dev}"
-FIRMWARE_DIR="${FIRMWARE_DIR:-coldcard-firmware}"
+FIRMWARE_DIR="$(cd "${FIRMWARE_DIR:-coldcard-firmware}" && pwd)"
+WORK_DIR="$(pwd)"
 PLATFORM="linux-x86_64"
-BUNDLE_DIR="hwwtui-coldcard-${PLATFORM}"
+BUNDLE_DIR="${WORK_DIR}/hwwtui-coldcard-${PLATFORM}"
 
 echo "==> Building Coldcard unix simulator from ${FIRMWARE_DIR}"
 
@@ -19,7 +20,6 @@ cd "${FIRMWARE_DIR}/unix"
 make setup
 make ngu-setup
 make
-cd ../..
 
 # Locate the micropython binary (path varies by firmware version).
 MP_BIN=$(find "${FIRMWARE_DIR}/unix" -maxdepth 2 -type f -name 'micropython' | head -1)
@@ -31,6 +31,7 @@ fi
 echo "==> Found micropython binary: ${MP_BIN}"
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
+cd "${WORK_DIR}"
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"
 
@@ -60,5 +61,5 @@ cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
 }
 EOF
 
-tar czf "hwwtui-coldcard-${PLATFORM}.tar.gz" "${BUNDLE_DIR}"
+tar czf "${WORK_DIR}/hwwtui-coldcard-${PLATFORM}.tar.gz" -C "${WORK_DIR}" "hwwtui-coldcard-${PLATFORM}"
 echo "==> Done: hwwtui-coldcard-${PLATFORM}.tar.gz"

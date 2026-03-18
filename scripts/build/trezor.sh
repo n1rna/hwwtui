@@ -9,21 +9,20 @@
 set -euo pipefail
 
 BUNDLE_VERSION="${BUNDLE_VERSION:-dev}"
-FIRMWARE_DIR="${FIRMWARE_DIR:-trezor-firmware}"
+FIRMWARE_DIR="$(cd "${FIRMWARE_DIR:-trezor-firmware}" && pwd)"
+WORK_DIR="$(pwd)"
 PLATFORM="linux-x86_64"
-BUNDLE_DIR="hwwtui-trezor-${PLATFORM}"
+BUNDLE_DIR="${WORK_DIR}/hwwtui-trezor-${PLATFORM}"
 
 echo "==> Building Trezor emulator from ${FIRMWARE_DIR}"
 
-# Install Python deps at the repo root (trezor uses a top-level Pipfile).
-cd "${FIRMWARE_DIR}"
-pip3 install --user pipenv
-pipenv install --dev
+# Install Python deps globally so make's subprocess calls can find them.
+# The Pipfile at the repo root lists everything (click, protobuf, etc.).
+pip3 install --user -r <(cd "${FIRMWARE_DIR}" && pipenv requirements --dev 2>/dev/null || pip3 install --user pipenv && cd "${FIRMWARE_DIR}" && pipenv requirements --dev)
 
 # Build the unix emulator.
-cd core
-pipenv run make build_unix
-cd ../..
+cd "${FIRMWARE_DIR}/core"
+make build_unix
 
 # Verify binary exists.
 BINARY="${FIRMWARE_DIR}/core/build/unix/trezor-emu-core"
@@ -33,6 +32,7 @@ if [ ! -f "${BINARY}" ]; then
 fi
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
+cd "${WORK_DIR}"
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"
 
@@ -58,5 +58,5 @@ cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
 }
 EOF
 
-tar czf "hwwtui-trezor-${PLATFORM}.tar.gz" "${BUNDLE_DIR}"
+tar czf "${WORK_DIR}/hwwtui-trezor-${PLATFORM}.tar.gz" -C "${WORK_DIR}" "hwwtui-trezor-${PLATFORM}"
 echo "==> Done: hwwtui-trezor-${PLATFORM}.tar.gz"

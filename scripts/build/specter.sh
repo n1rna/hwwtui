@@ -9,15 +9,15 @@
 set -euo pipefail
 
 BUNDLE_VERSION="${BUNDLE_VERSION:-dev}"
-FIRMWARE_DIR="${FIRMWARE_DIR:-specter-diy}"
+FIRMWARE_DIR="$(cd "${FIRMWARE_DIR:-specter-diy}" && pwd)"
+WORK_DIR="$(pwd)"
 PLATFORM="linux-x86_64"
-BUNDLE_DIR="hwwtui-specter-${PLATFORM}"
+BUNDLE_DIR="${WORK_DIR}/hwwtui-specter-${PLATFORM}"
 
 echo "==> Building Specter unix simulator from ${FIRMWARE_DIR}"
 
 cd "${FIRMWARE_DIR}"
 make unix || make micropython_unix
-cd ..
 
 # Locate binary.
 BIN=$(find "${FIRMWARE_DIR}" -maxdepth 3 -type f \( -name 'micropython_unix' -o -name 'micropython' \) | head -1)
@@ -29,6 +29,7 @@ fi
 echo "==> Found binary: ${BIN}"
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
+cd "${WORK_DIR}"
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"
 
@@ -55,5 +56,5 @@ cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
 }
 EOF
 
-tar czf "hwwtui-specter-${PLATFORM}.tar.gz" "${BUNDLE_DIR}"
+tar czf "${WORK_DIR}/hwwtui-specter-${PLATFORM}.tar.gz" -C "${WORK_DIR}" "hwwtui-specter-${PLATFORM}"
 echo "==> Done: hwwtui-specter-${PLATFORM}.tar.gz"

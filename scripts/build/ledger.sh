@@ -10,15 +10,16 @@
 set -euo pipefail
 
 BUNDLE_VERSION="${BUNDLE_VERSION:-dev}"
-FIRMWARE_DIR="${FIRMWARE_DIR:-app-bitcoin-new}"
+FIRMWARE_DIR="$(cd "${FIRMWARE_DIR:-app-bitcoin-new}" && pwd)"
+WORK_DIR="$(pwd)"
 PLATFORM="linux-x86_64"
-BUNDLE_DIR="hwwtui-ledger-${PLATFORM}"
+BUNDLE_DIR="${WORK_DIR}/hwwtui-ledger-${PLATFORM}"
 
 echo "==> Building Ledger Bitcoin app from ${FIRMWARE_DIR}"
 
 # Build the app ELF using the Ledger builder Docker image.
 docker run --rm \
-    -v "$(cd "${FIRMWARE_DIR}" && pwd):/app" \
+    -v "${FIRMWARE_DIR}:/app" \
     -w /app \
     ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder:latest \
     make BOLOS_SDK=/opt/nanosplus-secure-sdk
@@ -36,6 +37,7 @@ fi
 echo "==> Found app ELF: ${ELF}"
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
+cd "${WORK_DIR}"
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"
 
@@ -95,5 +97,5 @@ cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
 }
 EOF
 
-tar czf "hwwtui-ledger-${PLATFORM}.tar.gz" "${BUNDLE_DIR}"
+tar czf "${WORK_DIR}/hwwtui-ledger-${PLATFORM}.tar.gz" -C "${WORK_DIR}" "hwwtui-ledger-${PLATFORM}"
 echo "==> Done: hwwtui-ledger-${PLATFORM}.tar.gz"
