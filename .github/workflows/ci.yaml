@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libusb-1.0-0-dev libudev-dev pkg-config
+            libusb-1.0-0-dev libudev-dev pkg-config libclang-dev
 
       - name: Check formatting
         run: cargo fmt --all -- --check

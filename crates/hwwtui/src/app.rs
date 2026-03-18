@@ -27,6 +27,7 @@ pub enum Action {
     ResetSelected,
     DownloadSelected,
     RemoveSelected,
+    #[allow(dead_code)]
     RefreshBundleStatus,
 }
 
@@ -51,7 +52,8 @@ pub struct DevicePane {
     pub raw_log: VecDeque<(String, String)>, // (direction prefix, hex)
     /// Human-readable transport description.
     pub transport_label: String,
-    /// Whether this device is fully implemented in Phase 1.
+    /// Whether this device is fully implemented.
+    #[allow(dead_code)]
     pub implemented: bool,
     /// Current bundle installation status.
     pub bundle_status: BundleStatus,
@@ -197,6 +199,7 @@ impl App {
         &self.panes[self.selected_tab]
     }
 
+    #[allow(dead_code)]
     pub fn selected_pane_mut(&mut self) -> &mut DevicePane {
         &mut self.panes[self.selected_tab]
     }

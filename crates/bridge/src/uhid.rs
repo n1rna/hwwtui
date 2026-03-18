@@ -60,11 +60,10 @@ impl VirtualHidDevice {
 
         let device = UHIDDevice::create(params).map_err(|e| {
             anyhow::anyhow!(
-                "Failed to create UHID device '{}' (VID={vid:#06x} PID={pid:#06x}): {e}\n\
+                "Failed to create UHID device '{name}' (VID={vid:#06x} PID={pid:#06x}): {e}\n\
                  Hint: check that /dev/uhid is accessible. Try:\n\
                  \tsudo setfacl -m u:$USER:rw /dev/uhid\n\
-                 or add a udev rule: KERNEL==\"uhid\", MODE=\"0660\", GROUP=\"plugdev\"",
-                name
+                 or add a udev rule: KERNEL==\"uhid\", MODE=\"0660\", GROUP=\"plugdev\""
             )
         })?;
 

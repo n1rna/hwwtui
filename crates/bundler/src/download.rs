@@ -140,7 +140,7 @@ impl GithubDownloader {
 
         let status = response.status();
         if !status.is_success() {
-            anyhow::bail!("download request returned HTTP {}", status);
+            anyhow::bail!("download request returned HTTP {status}");
         }
 
         let total_bytes: Option<u64> = response
@@ -378,13 +378,12 @@ mod tests {
 
         for (name, expected_wallet, expected_platform) in &cases {
             let result = parse_asset_name(name);
-            assert!(result.is_some(), "failed to parse asset name: {}", name);
+            assert!(result.is_some(), "failed to parse asset name: {name}");
             let (wallet, platform) = result.unwrap();
-            assert_eq!(wallet, *expected_wallet, "wallet mismatch for {}", name);
+            assert_eq!(wallet, *expected_wallet, "wallet mismatch for {name}");
             assert_eq!(
                 platform, *expected_platform,
-                "platform mismatch for {}",
-                name
+                "platform mismatch for {name}"
             );
         }
     }
@@ -400,8 +399,7 @@ mod tests {
         for name in &bad {
             assert!(
                 parse_asset_name(name).is_none(),
-                "expected None for: {}",
-                name
+                "expected None for: {name}"
             );
         }
     }
@@ -409,6 +407,6 @@ mod tests {
     #[test]
     fn current_platform_non_empty() {
         let p = current_platform();
-        assert!(p.contains('-'), "expected 'os-arch' format, got: {}", p);
+        assert!(p.contains('-'), "expected 'os-arch' format, got: {p}");
     }
 }

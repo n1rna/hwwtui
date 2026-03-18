@@ -19,6 +19,7 @@ pub struct Config {
 #[derive(Debug, Clone)]
 pub struct DeviceConfig {
     pub kind: DeviceKind,
+    #[allow(dead_code)]
     pub enabled: bool,
     pub trezor: Option<TrezorConfig>,
 }
