@@ -381,10 +381,7 @@ mod tests {
             assert!(result.is_some(), "failed to parse asset name: {name}");
             let (wallet, platform) = result.unwrap();
             assert_eq!(wallet, *expected_wallet, "wallet mismatch for {name}");
-            assert_eq!(
-                platform, *expected_platform,
-                "platform mismatch for {name}"
-            );
+            assert_eq!(platform, *expected_platform, "platform mismatch for {name}");
         }
     }
 
