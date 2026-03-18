@@ -90,6 +90,9 @@ where
         // Drain any pending bridge messages (non-blocking).
         app.poll_bridge_messages();
 
+        // Drain captured emulator process output (non-blocking).
+        app.poll_firmware_logs();
+
         // Update download progress from background tasks.
         app.poll_download_progress();
 

@@ -5,18 +5,18 @@
 //! ```text
 //! ┌─ hwwtui ──────────────────────────────────────────────────┐
 //! │ [Trezor ▶] [BitBox02 ■] [Coldcard ■] ...               │ <- tab bar
-//! ├───────────────────────────────┬────────────────────────────┤
-//! │                               │  Method Calls              │
-//! │   Device Screen               │  ─────────────             │
-//! │   (placeholder)               │  → Initialize              │
-//! │                               │  ← Features               │
-//! ├───────────────────────────────┼────────────────────────────┤
-//! │  Controls                     │  Raw Messages              │
-//! │  [Start] [Stop] [Reset]      │  ─────────────             │
-//! │  Bundle: v2.10.0 (40.1 MB)   │  >> 3f 23 23 ...           │
-//! │  Status: Running ●            │  << 3f 23 23 ...           │
-//! │  Transport: UDP :21324        │                            │
-//! └───────────────────────────────┴────────────────────────────┘
+//! ├──────────────────────────┬────────────────────────────────┤
+//! │  Device Screen           │  Method Calls                  │
+//! │  (placeholder)           │  → Initialize                  │
+//! │                          │  ← Features                   │
+//! ├──────────────────────────┤────────────────────────────────┤
+//! │  Controls                │  Firmware Log                  │
+//! │  Status: Running ●       │  trezor.loop DEBUG spawn...    │
+//! │  Transport: UDP :21324   │  trezor.workflow DEBUG start.. │
+//! ├──────────────────────────┴────────────────────────────────┤
+//! │  Raw Messages                                             │
+//! │  >> 3f 23 23 00 00 ...  << 3f 23 23 00 11 ...            │
+//! └───────────────────────────────────────────────────────────┘
 //! ```
 
 use ratatui::{
@@ -110,21 +110,25 @@ fn status_indicator(pane: &crate::app::DevicePane) -> String {
 // ── Body ──────────────────────────────────────────────────────────────────────
 
 fn render_body(frame: &mut Frame, app: &App, area: Rect) {
-    // Horizontal split: left 50% / right 50%.
+    // Outer vertical split: upper columns / raw messages strip at the bottom.
+    let [upper_area, raw_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(6)]).areas(area);
+
+    // Upper area: left column (screen + controls) / right column (method log + firmware log).
     let [left_area, right_area] =
-        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(area);
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .areas(upper_area);
 
     let pane = app.selected_pane();
 
-    // Left: check if we need a download progress bar beneath the controls.
+    // Left column: screen mirror (fill) + optional progress bar + controls (fixed 9 rows).
     let is_downloading = matches!(pane.bundle_status, BundleStatus::Downloading { .. });
 
     let (screen_area, controls_area, progress_area) = if is_downloading {
-        // Screen | Controls (fixed height) | Progress bar (3 rows)
-        let [s, c, p] = Layout::vertical([
+        let [s, p, c] = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(9),
             Constraint::Length(3),
+            Constraint::Length(9),
         ])
         .areas(left_area);
         (s, c, Some(p))
@@ -134,10 +138,9 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         (s, c, None)
     };
 
-    // Right: method log (top) + raw log (bottom).
-    let [method_area, raw_area] =
-        Layout::vertical([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .areas(right_area);
+    // Right column: method log (fill) + firmware log (fixed 10 rows).
+    let [method_area, firmware_log_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(10)]).areas(right_area);
 
     render_screen_mirror(frame, pane, screen_area);
     render_controls(frame, pane, controls_area);
@@ -145,6 +148,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         render_download_progress(frame, pane, p);
     }
     render_method_log(frame, pane, method_area);
+    render_firmware_log(frame, pane, firmware_log_area);
     render_raw_log(frame, pane, raw_area);
 }
 
@@ -358,6 +362,39 @@ fn render_method_log(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rec
         Block::default()
             .borders(Borders::ALL)
             .title(" Method Calls "),
+    );
+    frame.render_widget(list, area);
+}
+
+// ── Firmware log ──────────────────────────────────────────────────────────────
+
+fn render_firmware_log(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
+    let max_items = area.height.saturating_sub(2) as usize;
+    let items: Vec<ListItem> = pane
+        .firmware_log
+        .iter()
+        .rev()
+        .take(max_items)
+        .rev()
+        .map(|line| {
+            // Truncate lines that would overflow the widget width.
+            let max_width = area.width.saturating_sub(4) as usize;
+            let display = if line.len() > max_width && max_width > 1 {
+                format!("{}…", &line[..max_width - 1])
+            } else {
+                line.clone()
+            };
+            ListItem::new(Line::from(Span::styled(
+                display,
+                Style::default().fg(Color::DarkGray),
+            )))
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Firmware Log "),
     );
     frame.render_widget(list, area);
 }

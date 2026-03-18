@@ -15,11 +15,14 @@
 //! | `TREZOR_PROFILE_DIR` | Where flash/SD-card images are stored |
 //! | `SDL_VIDEODRIVER` | Set to `offscreen` to suppress a display window |
 
+use std::collections::VecDeque;
 use std::net::UdpSocket;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tracing::{debug, info, warn};
 
@@ -77,6 +80,9 @@ pub struct TrezorEmulator {
 
     /// Current lifecycle status.
     status: EmulatorStatus,
+
+    /// Captured stdout/stderr lines from the emulator process.
+    output_lines: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl TrezorEmulator {
@@ -96,6 +102,7 @@ impl TrezorEmulator {
             port,
             child: None,
             status: EmulatorStatus::Stopped,
+            output_lines: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -113,6 +120,7 @@ impl TrezorEmulator {
             port,
             child: None,
             status: EmulatorStatus::Stopped,
+            output_lines: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -245,18 +253,51 @@ impl Emulator for TrezorEmulator {
             String::new()
         };
 
-        let child = Command::new(&binary)
+        let mut child = Command::new(&binary)
             .current_dir(&self.firmware_path)
             .env("LD_LIBRARY_PATH", &ld_library_path)
             .env("MICROPYPATH", &micropypath)
             .env("TREZOR_PROFILE_DIR", &self.profile_dir)
-            // Suppress SDL window; the TUI renders the screen itself later.
-            .env("SDL_VIDEODRIVER", "offscreen")
+            // Use the dummy SDL driver — never opens a window on any SDL2 version.
+            .env("SDL_VIDEODRIVER", "dummy")
             // Bind to the configured port.
             .env("TREZOR_UDP_PORT", self.port.to_string())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn Trezor emulator: {e}"))?;
+
+        // Take stdout/stderr BEFORE moving child into self so we keep &mut Child.
+        if let Some(stdout) = child.stdout.take() {
+            let lines = Arc::clone(&self.output_lines);
+            tokio::spawn(async move {
+                let reader = BufReader::new(stdout);
+                let mut stream = reader.lines();
+                while let Ok(Some(line)) = stream.next_line().await {
+                    let mut buf = lines.lock().unwrap();
+                    if buf.len() >= 500 {
+                        buf.pop_front();
+                    }
+                    buf.push_back(line);
+                }
+            });
+        }
+
+        if let Some(stderr) = child.stderr.take() {
+            let lines = Arc::clone(&self.output_lines);
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr);
+                let mut stream = reader.lines();
+                while let Ok(Some(line)) = stream.next_line().await {
+                    let mut buf = lines.lock().unwrap();
+                    if buf.len() >= 500 {
+                        buf.pop_front();
+                    }
+                    buf.push_back(line);
+                }
+            });
+        }
 
         self.child = Some(child);
 
@@ -300,6 +341,11 @@ impl Emulator for TrezorEmulator {
 
     async fn health_check(&self) -> bool {
         self.probe_udp()
+    }
+
+    fn drain_output(&mut self) -> Vec<String> {
+        let mut buf = self.output_lines.lock().unwrap();
+        buf.drain(..).collect()
     }
 }
 

@@ -110,4 +110,10 @@ pub trait Emulator: Send + Sync {
 
     /// Returns `true` if the transport endpoint is currently reachable.
     async fn health_check(&self) -> bool;
+
+    /// Drain captured stdout/stderr lines from the emulator process.
+    /// Returns an empty vec if no new output. Non-blocking.
+    fn drain_output(&mut self) -> Vec<String> {
+        Vec::new()
+    }
 }

@@ -50,6 +50,8 @@ pub struct DevicePane {
     pub method_log: VecDeque<(String, String)>, // (direction prefix, message)
     /// Raw hex dump log.
     pub raw_log: VecDeque<(String, String)>, // (direction prefix, hex)
+    /// Lines captured from the emulator process stdout/stderr.
+    pub firmware_log: VecDeque<String>,
     /// Human-readable transport description.
     pub transport_label: String,
     /// Whether this device is fully implemented.
@@ -81,6 +83,7 @@ impl DevicePane {
             bridge_rx: None,
             method_log: VecDeque::with_capacity(MAX_LOG_ENTRIES),
             raw_log: VecDeque::with_capacity(MAX_LOG_ENTRIES),
+            firmware_log: VecDeque::with_capacity(MAX_LOG_ENTRIES),
             transport_label,
             implemented,
             bundle_status,
@@ -108,6 +111,14 @@ impl DevicePane {
             self.method_log.pop_front();
         }
         self.method_log.push_back((direction.to_string(), text));
+    }
+
+    /// Push a line from the emulator process stdout/stderr (capped).
+    pub fn push_firmware_log(&mut self, line: String) {
+        if self.firmware_log.len() >= MAX_LOG_ENTRIES {
+            self.firmware_log.pop_front();
+        }
+        self.firmware_log.push_back(line);
     }
 
     /// Push a raw hex line to the raw log (capped).
@@ -513,6 +524,20 @@ impl App {
                     if matches!(pane.bundle_status, BundleStatus::Installed { .. }) {
                         pane.push_method("→", "Bundle installed successfully".to_string());
                     }
+                }
+            }
+        }
+    }
+
+    // ── Firmware log drain ────────────────────────────────────────────────────
+
+    /// Drain any stdout/stderr lines captured from running emulator processes.
+    /// Called every tick from the event loop (non-blocking).
+    pub fn poll_firmware_logs(&mut self) {
+        for pane in &mut self.panes {
+            if let Some(emu) = &mut pane.emulator {
+                for line in emu.drain_output() {
+                    pane.push_firmware_log(line);
                 }
             }
         }
