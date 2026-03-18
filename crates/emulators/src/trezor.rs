@@ -63,6 +63,9 @@ pub struct TrezorEmulator {
     /// Path to the `core/` directory inside `trezor-firmware`.
     firmware_path: PathBuf,
 
+    /// If set, use this exact binary path instead of deriving from firmware_path.
+    binary_override: Option<PathBuf>,
+
     /// Directory used for emulated flash / SD-card state files.
     profile_dir: PathBuf,
 
@@ -88,6 +91,7 @@ impl TrezorEmulator {
     ) -> Self {
         Self {
             firmware_path: firmware_path.into(),
+            binary_override: None,
             profile_dir: profile_dir.into(),
             port,
             child: None,
@@ -95,8 +99,28 @@ impl TrezorEmulator {
         }
     }
 
-    /// Returns the path to the `micropython` binary inside `firmware_path`.
+    /// Create a new manager with an explicit binary path (for bundled emulators).
+    pub fn new_with_binary(
+        binary_path: impl Into<PathBuf>,
+        firmware_path: impl Into<PathBuf>,
+        profile_dir: impl Into<PathBuf>,
+        port: u16,
+    ) -> Self {
+        Self {
+            firmware_path: firmware_path.into(),
+            binary_override: Some(binary_path.into()),
+            profile_dir: profile_dir.into(),
+            port,
+            child: None,
+            status: EmulatorStatus::Stopped,
+        }
+    }
+
+    /// Returns the path to the emulator binary.
     fn micropython_path(&self) -> PathBuf {
+        if let Some(ref bin) = self.binary_override {
+            return bin.clone();
+        }
         self.firmware_path
             .join("build")
             .join("unix")

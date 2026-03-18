@@ -429,4 +429,39 @@ mod tests {
         assert_eq!(m, 3);
         assert_eq!(d, 15);
     }
+
+    #[test]
+    fn manifest_parses_lowercase_wallet_type() {
+        let json = r#"{
+            "wallet_type": "trezor",
+            "version": "dev",
+            "platform": "linux-x86_64",
+            "installed_at": "2026-03-18T00:00:00Z",
+            "size_bytes": 1000,
+            "emulator_binary": "trezor-emu-core",
+            "firmware_dir": null,
+            "build_info": null
+        }"#;
+        let m: BundleManifest =
+            serde_json::from_str(json).expect("should parse lowercase wallet_type");
+        assert_eq!(m.wallet_type, emulators::WalletType::Trezor);
+        assert_eq!(m.version, "dev");
+    }
+
+    #[test]
+    fn manifest_parses_bitbox02_wallet_type() {
+        let json = r#"{
+            "wallet_type": "bitbox02",
+            "version": "v9.22.0",
+            "platform": "linux-x86_64",
+            "installed_at": "2026-03-18T00:00:00Z",
+            "size_bytes": 500,
+            "emulator_binary": "bitbox02-simulator",
+            "firmware_dir": null,
+            "build_info": null
+        }"#;
+        let m: BundleManifest =
+            serde_json::from_str(json).expect("should parse bitbox02 wallet_type");
+        assert_eq!(m.wallet_type, emulators::WalletType::BitBox02);
+    }
 }

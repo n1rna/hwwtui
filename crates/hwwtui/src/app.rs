@@ -259,12 +259,23 @@ impl App {
             match pane.kind {
                 DeviceKind::Trezor => {
                     let wallet_type = device_kind_to_wallet_type(pane.kind);
-                    let firmware_dir = self.bundle_manager.firmware_dir(wallet_type);
-                    match firmware_dir {
-                        Some(fw_dir) => {
+                    let binary_path = self.bundle_manager.emulator_binary_path(wallet_type);
+                    match binary_path {
+                        Some(bin_path) => {
+                            // The bundle dir is the parent of the binary.
+                            // TrezorEmulator expects firmware_path to contain
+                            // build/unix/trezor-emu-core, so we set it up so
+                            // micropython_path() resolves correctly.
+                            let bundle_dir =
+                                bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
                             let profile_dir = PathBuf::from("/tmp/hwwtui-trezor");
                             let port = 21324u16;
-                            let emu = TrezorEmulator::new(fw_dir, profile_dir, port);
+                            let emu = TrezorEmulator::new_with_binary(
+                                bin_path,
+                                bundle_dir,
+                                profile_dir,
+                                port,
+                            );
                             pane.emulator = Some(Box::new(emu));
                             pane.transport_label = format!("UDP :{port}");
                         }
