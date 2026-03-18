@@ -144,7 +144,9 @@ impl DevicePane {
         if self.firmware_log.len() >= MAX_LOG_ENTRIES {
             self.firmware_log.pop_front();
         }
-        self.firmware_log.push_back(line);
+        // Strip ANSI escape codes so they don't corrupt the TUI.
+        let clean = strip_ansi(&line);
+        self.firmware_log.push_back(clean);
     }
 
     /// Push a raw hex line to the raw log (capped).
@@ -681,14 +683,24 @@ impl App {
 
         match dl.get_layout().await {
             Ok(tokens) => {
+                if !tokens.is_empty() {
+                    tracing::debug!(
+                        token_count = tokens.len(),
+                        first_token_len = tokens.first().map(|t| t.len()).unwrap_or(0),
+                        "Debug link got tokens"
+                    );
+                    // Log first token for debugging (truncated)
+                    if let Some(first) = tokens.first() {
+                        let preview: String = first.chars().take(200).collect();
+                        tracing::debug!(preview = %preview, "First token content");
+                    }
+                }
                 let parsed: ParsedLayout = parse_layout_tokens(&tokens);
                 pane.screen_title = parsed.title;
                 pane.screen_content = parsed.lines;
                 pane.screen_buttons = parsed.buttons;
             }
             Err(e) => {
-                // Don't log every failure — the emulator may not have a layout
-                // ready yet (e.g. still booting).
                 tracing::debug!("Debug link poll failed: {e}");
             }
         }
@@ -751,6 +763,29 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{bytes} B")
     }
+}
+
+/// Strip ANSI escape sequences from a string.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Consume ESC [ ... m  (CSI sequence)
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 // Bring PathBuf into scope for start_selected.
