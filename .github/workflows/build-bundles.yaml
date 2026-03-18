@@ -19,25 +19,20 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Trezor – native emulator build (Python + C)
+  # Trezor
   # ---------------------------------------------------------------------------
   build-trezor:
     if: ${{ inputs.wallets == '' || contains(inputs.wallets, 'trezor') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout hwwtui
-        uses: actions/checkout@v4
-
-      - name: Checkout trezor-firmware
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: trezor/trezor-firmware
           path: trezor-firmware
           submodules: recursive
-          # Pin to a known-good tag; bump as needed
           ref: core/v2.8.9
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -45,93 +40,37 @@ jobs:
             python3 python3-pip python3-venv pipenv \
             libsdl2-dev protobuf-compiler libusb-1.0-0-dev \
             scons build-essential pkg-config libffi-dev
-
-      - name: Install Rust nightly (trezor-core requirement)
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
-
-      - name: Cache pip packages
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: trezor-pip-${{ runner.os }}-${{ hashFiles('trezor-firmware/core/Pipfile.lock') }}
           restore-keys: trezor-pip-${{ runner.os }}-
-
-      - name: Build Trezor emulator
-        working-directory: trezor-firmware
-        run: |
-          # Install Python deps at the repo root first (trezor uses a
-          # top-level Pipfile that core/Makefile expects).
-          pip3 install --user pipenv
-          pipenv install --dev
-          # Now build the unix emulator inside the pipenv environment.
-          cd core
-          pipenv run make build_unix
-
-      - name: Verify binary exists
-        run: |
-          test -f trezor-firmware/core/build/unix/trezor-emu-core \
-            || { echo "ERROR: trezor-emu-core binary not found"; exit 1; }
-
-      - name: Package bundle
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="hwwtui-trezor-linux-x86_64"
-          mkdir -p "${BUNDLE_DIR}"
-
-          cp trezor-firmware/core/build/unix/trezor-emu-core "${BUNDLE_DIR}/"
-          chmod +x "${BUNDLE_DIR}/trezor-emu-core"
-
-          # Copy the Python source tree the emulator loads at runtime.
-          # Prune __pycache__, tests, and docs to keep the bundle lean.
-          rsync -a \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='tests/' \
-            trezor-firmware/core/src/ "${BUNDLE_DIR}/src/"
-
-          # bundle-info.json
-          CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
-          cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
-          {
-            "wallet_type": "trezor",
-            "version": "${BUNDLE_VERSION}",
-            "platform": "linux-x86_64",
-            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "contents": ${CONTENTS}
-          }
-          EOF
-
-          tar czf "hwwtui-trezor-linux-x86_64.tar.gz" "${BUNDLE_DIR}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and package
+        run: FIRMWARE_DIR=trezor-firmware ./scripts/build/trezor.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: hwwtui-trezor-linux-x86_64
           path: hwwtui-trezor-linux-x86_64.tar.gz
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # BitBox02 – CMake simulator build
+  # BitBox02
   # ---------------------------------------------------------------------------
   build-bitbox02:
     if: ${{ inputs.wallets == '' || contains(inputs.wallets, 'bitbox02') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout hwwtui
-        uses: actions/checkout@v4
-
-      - name: Checkout bitbox02-firmware
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: BitBoxSwiss/bitbox02-firmware
           path: bitbox02-firmware
           submodules: recursive
-          # Full history needed: CMake derives the version from git tags
           fetch-depth: 0
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -139,84 +78,30 @@ jobs:
             cmake ninja-build gcc g++ protobuf-compiler \
             libusb-1.0-0-dev libudev-dev pkg-config \
             python3 python3-pip
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build BitBox02 simulator
-        working-directory: bitbox02-firmware
-        run: |
-          mkdir -p build-sim && cd build-sim
-          cmake .. \
-            -GNinja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TYPE=simulator
-          ninja
-
-      - name: Locate simulator binary
-        id: find-bin
-        working-directory: bitbox02-firmware/build-sim
-        run: |
-          # The binary name varies across firmware versions; search for it.
-          BIN=$(find . -type f -name 'bitbox02_simulator*' -o -name 'simulator' | head -1)
-          if [ -z "${BIN}" ]; then
-            echo "ERROR: simulator binary not found in build-sim/"
-            find . -type f -executable | head -20
-            exit 1
-          fi
-          echo "bin=${BIN}" >> "$GITHUB_OUTPUT"
-
-      - name: Package bundle
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="hwwtui-bitbox02-linux-x86_64"
-          mkdir -p "${BUNDLE_DIR}"
-
-          cp "bitbox02-firmware/build-sim/${{ steps.find-bin.outputs.bin }}" \
-             "${BUNDLE_DIR}/bitbox02-simulator"
-          chmod +x "${BUNDLE_DIR}/bitbox02-simulator"
-
-          CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
-          cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
-          {
-            "wallet_type": "bitbox02",
-            "version": "${BUNDLE_VERSION}",
-            "platform": "linux-x86_64",
-            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "contents": ${CONTENTS}
-          }
-          EOF
-
-          tar czf "hwwtui-bitbox02-linux-x86_64.tar.gz" "${BUNDLE_DIR}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and package
+        run: FIRMWARE_DIR=bitbox02-firmware ./scripts/build/bitbox02.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: hwwtui-bitbox02-linux-x86_64
           path: hwwtui-bitbox02-linux-x86_64.tar.gz
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Coldcard – MicroPython unix port
+  # Coldcard
   # ---------------------------------------------------------------------------
   build-coldcard:
     if: ${{ inputs.wallets == '' || contains(inputs.wallets, 'coldcard') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout hwwtui
-        uses: actions/checkout@v4
-
-      - name: Checkout Coldcard firmware
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: Coldcard/firmware
           path: coldcard-firmware
           submodules: recursive
-          # Some submodules (e.g. lwip on savannah.gnu.org) don't support
-          # shallow clones, so we need full depth.
           fetch-depth: 0
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -224,85 +109,28 @@ jobs:
             python3 python3-dev python3-pip python3-venv \
             libffi-dev build-essential pkg-config \
             autoconf automake libtool
-
-      - name: Build Coldcard unix simulator
-        working-directory: coldcard-firmware/unix
-        run: |
-          make setup
-          make ngu-setup
-          make
-
-      - name: Verify binary exists
-        run: |
-          test -f coldcard-firmware/unix/micropython \
-            || test -f coldcard-firmware/unix/l-port/micropython \
-            || { echo "ERROR: micropython binary not found"; find coldcard-firmware/unix -type f -executable | head -20; exit 1; }
-
-      - name: Package bundle
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="hwwtui-coldcard-linux-x86_64"
-          mkdir -p "${BUNDLE_DIR}"
-
-          # Locate the micropython binary (path varies by firmware version)
-          MP_BIN=$(find coldcard-firmware/unix -maxdepth 2 -type f -name 'micropython' | head -1)
-          if [ -z "${MP_BIN}" ]; then
-            echo "ERROR: micropython binary not found"
-            exit 1
-          fi
-          cp "${MP_BIN}" "${BUNDLE_DIR}/micropython"
-          chmod +x "${BUNDLE_DIR}/micropython"
-
-          # Runtime data: shared/ has the Python modules the simulator imports
-          rsync -a \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            coldcard-firmware/shared/ "${BUNDLE_DIR}/shared/"
-
-          rsync -a \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='*.o' \
-            coldcard-firmware/unix/ "${BUNDLE_DIR}/unix/"
-
-          CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
-          cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
-          {
-            "wallet_type": "coldcard",
-            "version": "${BUNDLE_VERSION}",
-            "platform": "linux-x86_64",
-            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "contents": ${CONTENTS}
-          }
-          EOF
-
-          tar czf "hwwtui-coldcard-linux-x86_64.tar.gz" "${BUNDLE_DIR}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and package
+        run: FIRMWARE_DIR=coldcard-firmware ./scripts/build/coldcard.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: hwwtui-coldcard-linux-x86_64
           path: hwwtui-coldcard-linux-x86_64.tar.gz
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Specter DIY – MicroPython unix simulator
+  # Specter DIY
   # ---------------------------------------------------------------------------
   build-specter:
     if: ${{ inputs.wallets == '' || contains(inputs.wallets, 'specter') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout hwwtui
-        uses: actions/checkout@v4
-
-      - name: Checkout specter-diy
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: cryptoadvance/specter-diy
           path: specter-diy
           submodules: recursive
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -310,273 +138,60 @@ jobs:
             python3 python3-pip libsdl2-dev \
             gcc-arm-none-eabi build-essential \
             pkg-config libtool autoconf automake
-
-      - name: Build Specter unix simulator
-        working-directory: specter-diy
-        run: |
-          make unix || make micropython_unix
-
-      - name: Locate binary
-        id: find-bin
-        run: |
-          BIN=$(find specter-diy -maxdepth 3 -type f -name 'micropython_unix' -o -name 'micropython' | head -1)
-          if [ -z "${BIN}" ]; then
-            echo "ERROR: micropython unix binary not found"
-            find specter-diy -type f -executable | head -20
-            exit 1
-          fi
-          echo "bin=${BIN}" >> "$GITHUB_OUTPUT"
-
-      - name: Package bundle
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="hwwtui-specter-linux-x86_64"
-          mkdir -p "${BUNDLE_DIR}"
-
-          cp "${{ steps.find-bin.outputs.bin }}" "${BUNDLE_DIR}/micropython_unix"
-          chmod +x "${BUNDLE_DIR}/micropython_unix"
-
-          # Copy boot script and source tree needed at runtime
-          [ -f specter-diy/boot.py ] && cp specter-diy/boot.py "${BUNDLE_DIR}/"
-          if [ -d specter-diy/src ]; then
-            rsync -a \
-              --exclude='__pycache__' \
-              --exclude='*.pyc' \
-              specter-diy/src/ "${BUNDLE_DIR}/src/"
-          fi
-
-          CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
-          cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
-          {
-            "wallet_type": "specter",
-            "version": "${BUNDLE_VERSION}",
-            "platform": "linux-x86_64",
-            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "contents": ${CONTENTS}
-          }
-          EOF
-
-          tar czf "hwwtui-specter-linux-x86_64.tar.gz" "${BUNDLE_DIR}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and package
+        run: FIRMWARE_DIR=specter-diy ./scripts/build/specter.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: hwwtui-specter-linux-x86_64
           path: hwwtui-specter-linux-x86_64.tar.gz
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Ledger – Speculos Docker image + Bitcoin app ELF
-  # NOTE: This job uses Docker and is heavier than native builds.
+  # Ledger (requires Docker)
   # ---------------------------------------------------------------------------
   build-ledger:
     if: ${{ inputs.wallets == '' || contains(inputs.wallets, 'ledger') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Checkout hwwtui
-        uses: actions/checkout@v4
-
-      - name: Checkout app-bitcoin-new
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: LedgerHQ/app-bitcoin-new
           path: app-bitcoin-new
           submodules: recursive
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            python3 python3-pip python3-venv \
-            protobuf-compiler
-
-      - name: Install Ledger development tools
-        run: |
-          pip3 install --user ledgered speculos
-
-      - name: Pull Speculos Docker image
-        run: |
-          docker pull ghcr.io/ledgerhq/speculos:latest
-
-      - name: Build Bitcoin app for Nano S Plus
-        working-directory: app-bitcoin-new
-        run: |
-          # Use the Ledger dev Docker image to compile the app ELF
-          docker run --rm \
-            -v "$(pwd):/app" \
-            -w /app \
-            ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder:latest \
-            make BOLOS_SDK=/opt/nanosplus-secure-sdk
-
-      - name: Verify app ELF exists
-        run: |
-          ELF=$(find app-bitcoin-new/bin -name '*.elf' -o -name 'app.elf' 2>/dev/null | head -1)
-          if [ -z "${ELF}" ]; then
-            # Some versions put it in build/
-            ELF=$(find app-bitcoin-new/build -name '*.elf' 2>/dev/null | head -1)
-          fi
-          if [ -z "${ELF}" ]; then
-            echo "ERROR: Bitcoin app ELF not found"
-            find app-bitcoin-new -name '*.elf' | head -10
-            exit 1
-          fi
-          echo "LEDGER_APP_ELF=${ELF}" >> "$GITHUB_ENV"
-
-      - name: Package bundle
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="hwwtui-ledger-linux-x86_64"
-          mkdir -p "${BUNDLE_DIR}"
-
-          cp "${LEDGER_APP_ELF}" "${BUNDLE_DIR}/bitcoin-app.elf"
-
-          # Create a launcher script for Speculos
-          cat > "${BUNDLE_DIR}/speculos-runner.sh" <<'RUNNER'
-          #!/usr/bin/env bash
-          # Launch Ledger Speculos emulator with the bundled Bitcoin app.
-          # Requires Docker.
-          set -euo pipefail
-          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-          APDU_PORT="${APDU_PORT:-9999}"
-          API_PORT="${API_PORT:-5000}"
-          MODEL="${MODEL:-nanos2}"  # nanos2 = Nano S Plus
-
-          echo "Starting Speculos (model=${MODEL}, apdu_port=${APDU_PORT}, api_port=${API_PORT})..."
-          docker run --rm -it \
-            -v "${SCRIPT_DIR}/bitcoin-app.elf:/app/bitcoin.elf:ro" \
-            -p "${APDU_PORT}:9999" \
-            -p "${API_PORT}:5000" \
-            ghcr.io/ledgerhq/speculos:latest \
-            /app/bitcoin.elf \
-            --model "${MODEL}" \
-            --display headless \
-            --seed "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-          RUNNER
-          chmod +x "${BUNDLE_DIR}/speculos-runner.sh"
-
-          # docker-compose.yml for convenience
-          cat > "${BUNDLE_DIR}/docker-compose.yml" <<'COMPOSE'
-          version: "3.8"
-          services:
-            speculos:
-              image: ghcr.io/ledgerhq/speculos:latest
-              ports:
-                - "9999:9999"
-                - "5000:5000"
-              volumes:
-                - ./bitcoin-app.elf:/app/bitcoin.elf:ro
-              command: >
-                /app/bitcoin.elf
-                --model nanos2
-                --display headless
-                --seed "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-          COMPOSE
-
-          CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
-          cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
-          {
-            "wallet_type": "ledger",
-            "version": "${BUNDLE_VERSION}",
-            "platform": "linux-x86_64",
-            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "contents": ${CONTENTS}
-          }
-          EOF
-
-          tar czf "hwwtui-ledger-linux-x86_64.tar.gz" "${BUNDLE_DIR}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and package
+        run: FIRMWARE_DIR=app-bitcoin-new ./scripts/build/ledger.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: hwwtui-ledger-linux-x86_64
           path: hwwtui-ledger-linux-x86_64.tar.gz
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Jade – QEMU Docker image
-  # NOTE: This job builds a Docker image and exports it. It is the heaviest
-  # build and may take 30+ minutes.
+  # Jade (requires Docker, heaviest build)
   # ---------------------------------------------------------------------------
   build-jade:
     if: ${{ inputs.wallets == '' || contains(inputs.wallets, 'jade') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Checkout hwwtui
-        uses: actions/checkout@v4
-
-      - name: Checkout Jade firmware
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: Blockstream/Jade
           path: jade-firmware
           submodules: recursive
-
-      - name: Build Jade QEMU Docker image
-        working-directory: jade-firmware
-        run: |
-          docker build -t jade-qemu -f Dockerfile.qemu .
-
-      - name: Export Docker image
-        run: |
-          docker save jade-qemu | gzip > jade-qemu-image.tar.gz
-
-      - name: Package bundle
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="hwwtui-jade-linux-x86_64"
-          mkdir -p "${BUNDLE_DIR}"
-
-          mv jade-qemu-image.tar.gz "${BUNDLE_DIR}/"
-
-          # Create a launcher script
-          cat > "${BUNDLE_DIR}/jade-runner.sh" <<'RUNNER'
-          #!/usr/bin/env bash
-          # Launch Jade QEMU emulator from the bundled Docker image.
-          # Requires Docker.
-          set -euo pipefail
-          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-          SERIAL_PORT="${SERIAL_PORT:-30121}"
-          IMAGE_NAME="jade-qemu"
-
-          # Load the image if not already present
-          if ! docker image inspect "${IMAGE_NAME}" &>/dev/null; then
-            echo "Loading Jade QEMU Docker image..."
-            docker load -i "${SCRIPT_DIR}/jade-qemu-image.tar.gz"
-          fi
-
-          echo "Starting Jade QEMU emulator (serial_port=${SERIAL_PORT})..."
-          docker run --rm -it \
-            -p "${SERIAL_PORT}:30121" \
-            "${IMAGE_NAME}"
-          RUNNER
-          chmod +x "${BUNDLE_DIR}/jade-runner.sh"
-
-          CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
-          cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF
-          {
-            "wallet_type": "jade",
-            "version": "${BUNDLE_VERSION}",
-            "platform": "linux-x86_64",
-            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "contents": ${CONTENTS}
-          }
-          EOF
-
-          tar czf "hwwtui-jade-linux-x86_64.tar.gz" "${BUNDLE_DIR}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and package
+        run: FIRMWARE_DIR=jade-firmware ./scripts/build/jade.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: hwwtui-jade-linux-x86_64
           path: hwwtui-jade-linux-x86_64.tar.gz
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Release – collect all bundles and publish as GitHub Release assets
+  # Release
   # ---------------------------------------------------------------------------
   release:
     needs:
@@ -591,20 +206,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: List downloaded artifacts
-        run: find artifacts -type f -name '*.tar.gz' | sort
-
       - name: Collect tarballs
         run: |
           mkdir -p release-assets
           find artifacts -type f -name '*.tar.gz' -exec cp {} release-assets/ \;
           ls -lh release-assets/
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
