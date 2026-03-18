@@ -20,6 +20,9 @@
 //! | `r` | Reset (stop + start) |
 //! | `d` | Download firmware bundle for selected device |
 //! | `D` | Remove installed bundle for selected device |
+//! | `Enter` | Confirm (press YES via debug link) |
+//! | `Esc` | Cancel (press NO via debug link) |
+//! | `↑` / `↓` / `←` / `→` | Swipe gesture via debug link |
 //! | `q` / `Ctrl-C` | Quit |
 
 mod app;
@@ -96,6 +99,9 @@ where
         // Update download progress from background tasks.
         app.poll_download_progress();
 
+        // Poll the debug-link screen (throttled internally to ~500 ms).
+        app.poll_screen().await;
+
         // Check if any emulators need a health refresh.
         // We do it inline here; a real impl would use a periodic background task.
 
@@ -124,6 +130,13 @@ where
                         KeyCode::Char('d') => app.dispatch(Action::DownloadSelected),
                         // Shift+D (uppercase D) → remove bundle.
                         KeyCode::Char('D') => app.dispatch(Action::RemoveSelected),
+                        // Debug link: confirm / cancel / swipe.
+                        KeyCode::Enter => app.dispatch(Action::ConfirmSelected),
+                        KeyCode::Esc => app.dispatch(Action::CancelSelected),
+                        KeyCode::Up => app.dispatch(Action::SwipeUp),
+                        KeyCode::Down => app.dispatch(Action::SwipeDown),
+                        KeyCode::Left => app.dispatch(Action::SwipeLeft),
+                        KeyCode::Right => app.dispatch(Action::SwipeRight),
                         _ => {}
                     }
                 }

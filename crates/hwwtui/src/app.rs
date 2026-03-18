@@ -10,6 +10,9 @@ use std::sync::Arc;
 use bridge::{trezor::TrezorBridge, Bridge, InterceptedMessage};
 use bundler::{BundleManager, BundleStatus, RemoteBundle};
 use emulators::{trezor::TrezorEmulator, Emulator, EmulatorStatus, WalletType};
+use protocol::trezor_debug::{
+    parse_layout_tokens, DebugButton, ParsedLayout, SwipeDirection, TrezorDebugLink,
+};
 use tokio::sync::{mpsc, watch};
 use tracing::{error, info, warn};
 
@@ -29,6 +32,14 @@ pub enum Action {
     RemoveSelected,
     #[allow(dead_code)]
     RefreshBundleStatus,
+    /// Press YES on the emulator via the debug link.
+    ConfirmSelected,
+    /// Press NO on the emulator via the debug link.
+    CancelSelected,
+    SwipeUp,
+    SwipeDown,
+    SwipeLeft,
+    SwipeRight,
 }
 
 // ── Per-device state ──────────────────────────────────────────────────────────
@@ -61,6 +72,16 @@ pub struct DevicePane {
     pub bundle_status: BundleStatus,
     /// Watch receiver for download progress updates.
     pub download_progress_rx: Option<watch::Receiver<BundleStatus>>,
+    /// Debug link client for the Trezor emulator (UDP port 21325).
+    pub debug_link: Option<TrezorDebugLink>,
+    /// Screen title extracted from the last debug-link poll.
+    pub screen_title: String,
+    /// Screen text content lines from the last debug-link poll.
+    pub screen_content: Vec<String>,
+    /// Button labels shown on the current emulator screen.
+    pub screen_buttons: Vec<String>,
+    /// Tick counter used to throttle debug-link polling.
+    pub screen_poll_ticks: u32,
 }
 
 impl DevicePane {
@@ -88,6 +109,11 @@ impl DevicePane {
             implemented,
             bundle_status,
             download_progress_rx: None,
+            debug_link: None,
+            screen_title: String::new(),
+            screen_content: Vec::new(),
+            screen_buttons: Vec::new(),
+            screen_poll_ticks: 0,
         }
     }
 
@@ -254,6 +280,24 @@ impl App {
                 Action::RefreshBundleStatus => {
                     self.refresh_bundle_status();
                 }
+                Action::ConfirmSelected => {
+                    self.debug_press(DebugButton::Yes).await;
+                }
+                Action::CancelSelected => {
+                    self.debug_press(DebugButton::No).await;
+                }
+                Action::SwipeUp => {
+                    self.debug_swipe(SwipeDirection::Up).await;
+                }
+                Action::SwipeDown => {
+                    self.debug_swipe(SwipeDirection::Down).await;
+                }
+                Action::SwipeLeft => {
+                    self.debug_swipe(SwipeDirection::Left).await;
+                }
+                Action::SwipeRight => {
+                    self.debug_swipe(SwipeDirection::Right).await;
+                }
             }
         }
     }
@@ -370,6 +414,32 @@ impl App {
             self.panes[idx].bridge_rx = Some(rx);
             info!("Device {} started", label);
         }
+
+        // Connect the debug link for Trezor (port = main port + 1).
+        if matches!(self.panes[idx].kind, DeviceKind::Trezor) {
+            let debug_port = self.panes[idx]
+                .emulator
+                .as_ref()
+                .and_then(|e| {
+                    if let emulators::TransportConfig::Udp { port, .. } = e.transport() {
+                        Some(port + 1)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(21325);
+
+            match TrezorDebugLink::connect(debug_port).await {
+                Ok(dl) => {
+                    self.panes[idx].debug_link = Some(dl);
+                    self.panes[idx]
+                        .push_method("→", format!("Debug link connected (UDP :{debug_port})"));
+                }
+                Err(e) => {
+                    self.panes[idx].push_method("!", format!("Debug link failed: {e}"));
+                }
+            }
+        }
     }
 
     async fn stop_selected(&mut self) {
@@ -383,6 +453,11 @@ impl App {
         }
         pane.bridge = None;
         pane.bridge_rx = None;
+        pane.debug_link = None;
+        pane.screen_title = String::new();
+        pane.screen_content = Vec::new();
+        pane.screen_buttons = Vec::new();
+        pane.screen_poll_ticks = 0;
 
         if let Some(emu) = &mut pane.emulator {
             if let Err(e) = emu.stop().await {
@@ -403,6 +478,7 @@ impl App {
             }
             pane.bridge = None;
             pane.bridge_rx = None;
+            pane.debug_link = None;
             if let Some(emu) = &mut pane.emulator {
                 emu.stop().await.ok();
             }
@@ -575,6 +651,74 @@ impl App {
                 }
             }
         }
+    }
+    // ── Debug link ────────────────────────────────────────────────────────────
+
+    /// Poll the debug-link screen for the currently selected pane.
+    ///
+    /// This is called every tick from the event loop but only issues a network
+    /// request every 5 ticks (~500 ms at 100 ms/tick).  If the emulator is not
+    /// running, or no debug link is connected, the call is a no-op.
+    pub async fn poll_screen(&mut self) {
+        let idx = self.selected_tab;
+        let pane = &mut self.panes[idx];
+
+        if !pane.is_running() {
+            return;
+        }
+
+        // Throttle: only poll every 5 ticks.
+        pane.screen_poll_ticks = pane.screen_poll_ticks.wrapping_add(1);
+        if pane.screen_poll_ticks % 5 != 0 {
+            return;
+        }
+
+        // We need to temporarily take the debug link out of the pane to avoid
+        // a simultaneous mutable borrow.
+        let Some(dl) = pane.debug_link.take() else {
+            return;
+        };
+
+        match dl.get_layout().await {
+            Ok(tokens) => {
+                let parsed: ParsedLayout = parse_layout_tokens(&tokens);
+                pane.screen_title = parsed.title;
+                pane.screen_content = parsed.lines;
+                pane.screen_buttons = parsed.buttons;
+            }
+            Err(e) => {
+                // Don't log every failure — the emulator may not have a layout
+                // ready yet (e.g. still booting).
+                tracing::debug!("Debug link poll failed: {e}");
+            }
+        }
+
+        // Put the link back.
+        pane.debug_link = Some(dl);
+    }
+
+    /// Send a button press through the debug link for the selected pane.
+    async fn debug_press(&mut self, button: DebugButton) {
+        let pane = &mut self.panes[self.selected_tab];
+        let Some(dl) = pane.debug_link.take() else {
+            return;
+        };
+        if let Err(e) = dl.press_button(button).await {
+            pane.push_method("!", format!("Debug button failed: {e}"));
+        }
+        pane.debug_link = Some(dl);
+    }
+
+    /// Send a swipe gesture through the debug link for the selected pane.
+    async fn debug_swipe(&mut self, direction: SwipeDirection) {
+        let pane = &mut self.panes[self.selected_tab];
+        let Some(dl) = pane.debug_link.take() else {
+            return;
+        };
+        if let Err(e) = dl.swipe(direction).await {
+            pane.push_method("!", format!("Debug swipe failed: {e}"));
+        }
+        pane.debug_link = Some(dl);
     }
 }
 

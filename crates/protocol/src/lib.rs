@@ -4,6 +4,7 @@
 //! human-readable [`DecodedMessage`] values for display in the TUI logs.
 
 pub mod trezor;
+pub mod trezor_debug;
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 

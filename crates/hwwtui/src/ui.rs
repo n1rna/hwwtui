@@ -128,13 +128,13 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         let [s, p, c] = Layout::vertical([
             Constraint::Fill(1),
             Constraint::Length(3),
-            Constraint::Length(9),
+            Constraint::Length(11),
         ])
         .areas(left_area);
         (s, c, Some(p))
     } else {
         let [s, c] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(9)]).areas(left_area);
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(11)]).areas(left_area);
         (s, c, None)
     };
 
@@ -156,66 +156,106 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_screen_mirror(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect) {
     let title = format!(" {} — Screen ", pane.label);
-    let inner_style = if pane.is_running() {
-        Style::default().fg(Color::White)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
 
-    let content = if pane.is_running() {
-        vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                "  (Screen mirror not yet implemented)",
+    let mut lines: Vec<Line> = Vec::new();
+
+    if pane.is_running() {
+        // Show debug-link screen content if we have any.
+        let has_content = !pane.screen_title.is_empty()
+            || !pane.screen_content.is_empty()
+            || !pane.screen_buttons.is_empty();
+
+        if has_content {
+            // Title row.
+            if !pane.screen_title.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", pane.screen_title),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                lines.push(Line::from(""));
+            }
+
+            // Content lines.
+            for line in &pane.screen_content {
+                lines.push(Line::from(Span::styled(
+                    format!("  {line}"),
+                    Style::default().fg(Color::White),
+                )));
+            }
+
+            // Button labels at the bottom.
+            if !pane.screen_buttons.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(
+                    pane.screen_buttons
+                        .iter()
+                        .map(|b| {
+                            Span::styled(
+                                format!(" [{b}] "),
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                ));
+            }
+        } else {
+            // Running but no layout yet — show placeholder.
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Waiting for screen layout…",
                 Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  Trezor emulator screen is available on UDP :21325",
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Debug link: UDP :21325",
                 Style::default().fg(Color::DarkGray),
-            )),
-        ]
+            )));
+        }
     } else {
+        // Not running: show bundle/state hints.
         match &pane.bundle_status {
-            BundleStatus::NotInstalled => vec![
-                Line::from(""),
-                Line::from(Span::styled(
+            BundleStatus::NotInstalled => {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
                     "  Press [d] to download the firmware bundle",
                     Style::default().fg(Color::DarkGray),
-                )),
-            ],
-            BundleStatus::Downloading { progress_pct } => vec![
-                Line::from(""),
-                Line::from(Span::styled(
+                )));
+            }
+            BundleStatus::Downloading { progress_pct } => {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
                     format!("  Downloading bundle… {progress_pct}%"),
                     Style::default().fg(COLOR_BUNDLE_PROGRESS),
-                )),
-            ],
-            BundleStatus::Installed { .. } => vec![
-                Line::from(""),
-                Line::from(Span::styled(
+                )));
+            }
+            BundleStatus::Installed { .. } => {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
                     "  Press [s] to start the emulator",
                     Style::default().fg(Color::DarkGray),
-                )),
-            ],
-            BundleStatus::Failed { error } => vec![
-                Line::from(""),
-                Line::from(Span::styled(
+                )));
+            }
+            BundleStatus::Failed { error } => {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
                     format!("  Download failed: {error}"),
                     Style::default().fg(COLOR_ERROR),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
+                )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
                     "  Press [d] to retry",
                     Style::default().fg(Color::DarkGray),
-                )),
-            ],
+                )));
+            }
         }
-    };
+    }
 
-    let para = Paragraph::new(content)
-        .block(Block::default().borders(Borders::ALL).title(title))
-        .style(inner_style);
+    let para = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(title));
     frame.render_widget(para, area);
 }
 
@@ -275,6 +315,24 @@ fn render_controls(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rect)
                 "[D] Remove",
                 Style::default()
                     .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "[Enter] Confirm  ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[Esc] Cancel  ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[↑↓←→] Swipe",
+                Style::default()
+                    .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
