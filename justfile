@@ -66,8 +66,56 @@ bundles-clean:
     @echo "All bundles removed"
 
 # Test a bundle build in Docker (e.g., just bundle-test trezor)
+# For trezor/bitbox02/coldcard/specter: builds in isolated Docker container.
+# For ledger/jade: runs on host (they need Docker themselves).
 bundle-test wallet:
-    docker build -f scripts/docker/Dockerfile.{{wallet}} -t hwwtui-test-{{wallet}} .
-    docker run --rm -v "$(pwd)/out:/out" hwwtui-test-{{wallet}} bash -c './scripts/build/{{wallet}}.sh && cp hwwtui-{{wallet}}-*.tar.gz /out/'
-    @echo "Output in out/"
-    @ls -lh out/hwwtui-{{wallet}}-*.tar.gz 2>/dev/null
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p out
+    if [ "{{wallet}}" = "ledger" ] || [ "{{wallet}}" = "jade" ]; then
+        echo "==> Building {{wallet}} on host (requires Docker)..."
+        ./scripts/build/{{wallet}}-local.sh
+    else
+        echo "==> Building {{wallet}} in Docker container..."
+        docker build -f scripts/docker/Dockerfile.{{wallet}} -t hwwtui-test-{{wallet}} .
+        docker run --rm -v "$(pwd)/out:/out" hwwtui-test-{{wallet}} \
+            bash -c './scripts/build/{{wallet}}.sh && cp hwwtui-{{wallet}}-*.tar.gz /out/'
+    fi
+    echo "Output in out/"
+    ls -lh out/hwwtui-{{wallet}}-*.tar.gz 2>/dev/null
+
+# Install a locally-built bundle into ~/.hwwtui/bundles/ for testing
+bundle-install wallet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TARBALL="out/hwwtui-{{wallet}}-linux-x86_64.tar.gz"
+    if [ ! -f "${TARBALL}" ]; then
+        echo "Bundle not found: ${TARBALL}"
+        echo "Run 'just bundle-test {{wallet}}' first."
+        exit 1
+    fi
+    DEST="$HOME/.hwwtui/bundles/{{wallet}}"
+    rm -rf "${DEST}"
+    mkdir -p "${DEST}"
+    tar xzf "${TARBALL}" --strip-components=1 -C "${DEST}"
+    # Write a manifest.json so hwwtui recognizes it
+    SIZE=$(du -sb "${DEST}" | cut -f1)
+    BINARY=$(cd "${DEST}" && find . -maxdepth 1 -type f -executable | head -1 | sed 's|^\./||')
+    cat > "${DEST}/manifest.json" <<EOF
+    {
+      "wallet_type": "{{wallet}}",
+      "version": "dev",
+      "platform": "linux-x86_64",
+      "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+      "size_bytes": ${SIZE},
+      "emulator_binary": "${BINARY:-unknown}",
+      "firmware_dir": null,
+      "build_info": null
+    }
+    EOF
+    echo "Installed {{wallet}} bundle to ${DEST}"
+    ls -lh "${DEST}"
+
+# Build, install, and list all available bundles
+bundle-install-all: (bundle-install "trezor") (bundle-install "bitbox02") (bundle-install "coldcard") (bundle-install "specter") (bundle-install "ledger") (bundle-install "jade")
+    @just bundles

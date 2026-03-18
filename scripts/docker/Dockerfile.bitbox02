@@ -5,7 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake ninja-build gcc g++ protobuf-compiler \
     libusb-1.0-0-dev libudev-dev pkg-config \
-    python3 python3-pip libcmocka-dev libhidapi-dev libclang-dev \
+    python3 python3-pip make build-essential \
+    libcmocka-dev libhidapi-dev libclang-dev \
     git curl ca-certificates jq libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 

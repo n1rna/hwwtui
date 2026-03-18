@@ -1,0 +1,25 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-dev python-is-python3 \
+    libsdl2-dev build-essential pkg-config \
+    libtool autoconf automake \
+    gcc-arm-none-eabi \
+    git curl ca-certificates rsync jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone specter-diy
+RUN git clone --recurse-submodules \
+    https://github.com/cryptoadvance/specter-diy.git /build/specter-diy
+
+WORKDIR /build
+
+COPY scripts/build/specter.sh /build/scripts/build/specter.sh
+RUN chmod +x /build/scripts/build/specter.sh
+
+ENV BUNDLE_VERSION=dev
+ENV FIRMWARE_DIR=/build/specter-diy
+
+CMD ["./scripts/build/specter.sh"]

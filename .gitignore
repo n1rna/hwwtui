@@ -4,3 +4,5 @@ Cargo.lock
 .env
 *.log
 trezor-profile/
+/out/
+/.build-cache/

@@ -1,0 +1,26 @@
+FROM ubuntu:24.04
+
+# Jade build uses Docker-in-Docker (builds a QEMU Docker image).
+# This Dockerfile sets up the host environment; the build script
+# needs access to the Docker socket via -v /var/run/docker.sock.
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    docker.io \
+    git curl ca-certificates jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone Jade firmware
+RUN git clone --recurse-submodules \
+    https://github.com/Blockstream/Jade.git /build/jade-firmware
+
+WORKDIR /build
+
+COPY scripts/build/jade.sh /build/scripts/build/jade.sh
+RUN chmod +x /build/scripts/build/jade.sh
+
+ENV BUNDLE_VERSION=dev
+ENV FIRMWARE_DIR=/build/jade-firmware
+
+CMD ["./scripts/build/jade.sh"]

@@ -16,19 +16,18 @@ BUNDLE_DIR="${WORK_DIR}/hwwtui-bitbox02-${PLATFORM}"
 
 echo "==> Building BitBox02 simulator from ${FIRMWARE_DIR}"
 
-mkdir -p "${FIRMWARE_DIR}/build-sim"
-cd "${FIRMWARE_DIR}/build-sim"
-cmake "${FIRMWARE_DIR}" \
-    -GNinja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_TYPE=simulator
-ninja
+cd "${FIRMWARE_DIR}"
+make simulator
 
-# Locate the simulator binary (name varies across versions).
-BIN=$(find "${FIRMWARE_DIR}/build-sim" -type f \( -name 'bitbox02_simulator*' -o -name 'simulator' \) | head -1)
+# Locate the simulator binary (build dir name varies: build-build-noasan, build-sim, etc).
+BIN=$(find "${FIRMWARE_DIR}" -path '*/build*/bin/simulator' -type f 2>/dev/null | head -1)
 if [ -z "${BIN}" ]; then
-    echo "ERROR: simulator binary not found in ${FIRMWARE_DIR}/build-sim/"
-    find "${FIRMWARE_DIR}/build-sim" -type f -executable | head -20
+    BIN=$(find "${FIRMWARE_DIR}" -path '*/build*' -type f -executable -name '*simulator*' 2>/dev/null | grep -v CMake | head -1)
+fi
+if [ -z "${BIN}" ]; then
+    echo "ERROR: simulator binary not found"
+    echo "==> Looking for executables in build dirs:"
+    find "${FIRMWARE_DIR}" -path '*/build*' -type f -executable 2>/dev/null | grep -v CMake | grep -v '.o' | head -20
     exit 1
 fi
 echo "==> Found simulator binary: ${BIN}"
