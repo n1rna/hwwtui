@@ -221,8 +221,24 @@ impl Emulator for TrezorEmulator {
 
         self.status = EmulatorStatus::Starting;
 
+        // If the binary has a lib/ sibling directory (bundled builds), prepend
+        // it to LD_LIBRARY_PATH so the emulator finds its shared libraries.
+        let lib_dir = binary.parent().map(|p| p.join("lib"));
+        let ld_library_path = match &lib_dir {
+            Some(d) if d.is_dir() => {
+                let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+                if existing.is_empty() {
+                    d.display().to_string()
+                } else {
+                    format!("{}:{existing}", d.display())
+                }
+            }
+            _ => std::env::var("LD_LIBRARY_PATH").unwrap_or_default(),
+        };
+
         let child = Command::new(&binary)
             .current_dir(&self.firmware_path)
+            .env("LD_LIBRARY_PATH", &ld_library_path)
             .env("TREZOR_PROFILE_DIR", &self.profile_dir)
             // Suppress SDL window; the TUI renders the screen itself later.
             .env("SDL_VIDEODRIVER", "offscreen")

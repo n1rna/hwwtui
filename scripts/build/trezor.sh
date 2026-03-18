@@ -53,6 +53,27 @@ mkdir -p "${BUNDLE_DIR}"
 cp "${BINARY}" "${BUNDLE_DIR}/"
 chmod +x "${BUNDLE_DIR}/trezor-emu-core"
 
+# Bundle all non-glibc shared libraries so the emulator is self-contained.
+echo "==> Collecting shared libraries"
+mkdir -p "${BUNDLE_DIR}/lib"
+ldd "${BINARY}" | awk '/=>/ {print $3}' | while read -r lib; do
+    # Skip glibc/ld/vdso — these must come from the host
+    case "$(basename "$lib")" in
+        libc.so*|libm.so*|libdl.so*|librt.so*|libpthread.so*|ld-linux*|libgcc_s.so*|libstdc++.so*) continue ;;
+    esac
+    cp -L "$lib" "${BUNDLE_DIR}/lib/" 2>/dev/null || true
+done
+
+# Create a wrapper script that sets LD_LIBRARY_PATH
+cat > "${BUNDLE_DIR}/run.sh" <<'WRAPPER'
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="${SCRIPT_DIR}/lib:${LD_LIBRARY_PATH:-}"
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-offscreen}"
+exec "${SCRIPT_DIR}/trezor-emu-core" "$@"
+WRAPPER
+chmod +x "${BUNDLE_DIR}/run.sh"
+
 # Copy the Python source tree the emulator loads at runtime.
 rsync -a \
     --exclude='__pycache__' \
