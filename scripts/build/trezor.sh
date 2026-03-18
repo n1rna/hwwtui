@@ -16,9 +16,23 @@ BUNDLE_DIR="${WORK_DIR}/hwwtui-trezor-${PLATFORM}"
 
 echo "==> Building Trezor emulator from ${FIRMWARE_DIR}"
 
-# Install Python deps globally so make's subprocess calls can find them.
-# The Pipfile at the repo root lists everything (click, protobuf, etc.).
-pip3 install --user -r <(cd "${FIRMWARE_DIR}" && pipenv requirements --dev 2>/dev/null || pip3 install --user pipenv && cd "${FIRMWARE_DIR}" && pipenv requirements --dev)
+# Install Python deps. Trezor uses poetry, but we just need the build deps
+# available globally so that make's python subprocesses can find them.
+# Install the local trezor python package + key deps.
+pip3 install --break-system-packages \
+    click protobuf scons mako munch "setuptools>=60" \
+    -e "${FIRMWARE_DIR}/python" \
+    2>/dev/null \
+|| pip3 install --user \
+    click protobuf scons mako munch "setuptools>=60" \
+    -e "${FIRMWARE_DIR}/python"
+
+# Ensure `python` points to python3 (Ubuntu 24.04 only ships python3).
+if ! command -v python &>/dev/null; then
+    sudo ln -sf "$(command -v python3)" /usr/local/bin/python 2>/dev/null \
+    || ln -sf "$(command -v python3)" /usr/local/bin/python 2>/dev/null \
+    || true
+fi
 
 # Build the unix emulator.
 cd "${FIRMWARE_DIR}/core"

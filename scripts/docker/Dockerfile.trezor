@@ -1,0 +1,35 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv python3-dev python-is-python3 \
+    libsdl2-dev libsdl2-image-dev protobuf-compiler libprotobuf-dev libusb-1.0-0-dev libclang-dev \
+    scons build-essential pkg-config libffi-dev \
+    git curl ca-certificates rsync jq sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust nightly
+# Pin to a nightly compatible with core/v2.8.9 (latest nightly breaks panic_immediate_abort)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain nightly-2025-06-01 -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup component add rust-src --toolchain nightly-2025-06-01-x86_64-unknown-linux-gnu
+
+# Clone trezor-firmware
+RUN git clone --recurse-submodules --depth 1 --branch core/v2.8.9 \
+    https://github.com/trezor/trezor-firmware.git /build/trezor-firmware
+
+# Pre-install Python deps so they're baked into the image
+RUN pip3 install --break-system-packages \
+    click protobuf scons mako munch "setuptools>=60" \
+    -e /build/trezor-firmware/python
+
+WORKDIR /build
+
+COPY scripts/build/trezor.sh /build/scripts/build/trezor.sh
+RUN chmod +x /build/scripts/build/trezor.sh
+
+ENV BUNDLE_VERSION=dev
+ENV FIRMWARE_DIR=/build/trezor-firmware
+
+CMD ["./scripts/build/trezor.sh"]

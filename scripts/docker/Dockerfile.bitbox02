@@ -1,0 +1,37 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake ninja-build gcc g++ protobuf-compiler \
+    libusb-1.0-0-dev libudev-dev pkg-config \
+    python3 python3-pip libcmocka-dev libhidapi-dev libclang-dev \
+    git curl ca-certificates jq libprotobuf-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust stable + cbindgen
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+# Install the exact toolchain bitbox02 needs + rust-src
+RUN rustup toolchain install 1.93.1 && rustup component add rust-src --toolchain 1.93.1-x86_64-unknown-linux-gnu \
+    && cargo install cbindgen cargo-binutils \
+    && cargo install bindgen-cli
+
+# Clone bitbox02-firmware (full history for git tags)
+RUN git clone --recurse-submodules \
+    https://github.com/BitBoxSwiss/bitbox02-firmware.git /build/bitbox02-firmware
+
+# Build the in-repo prost-build-proto tool
+RUN cd /build/bitbox02-firmware/tools/prost-build-proto && cargo build --release \
+    && cp /build/bitbox02-firmware/tools/prost-build-proto/target/release/prost-build-proto /root/.cargo/bin/
+
+WORKDIR /build
+
+# Copy our build script
+COPY scripts/build/bitbox02.sh /build/scripts/build/bitbox02.sh
+RUN chmod +x /build/scripts/build/bitbox02.sh
+
+ENV BUNDLE_VERSION=dev
+ENV FIRMWARE_DIR=/build/bitbox02-firmware
+
+CMD ["./scripts/build/bitbox02.sh"]

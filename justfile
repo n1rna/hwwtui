@@ -64,3 +64,10 @@ bundles:
 bundles-clean:
     rm -rf ~/.hwwtui/bundles/
     @echo "All bundles removed"
+
+# Test a bundle build in Docker (e.g., just bundle-test trezor)
+bundle-test wallet:
+    docker build -f scripts/docker/Dockerfile.{{wallet}} -t hwwtui-test-{{wallet}} .
+    docker run --rm -v "$(pwd)/out:/out" hwwtui-test-{{wallet}} bash -c './scripts/build/{{wallet}}.sh && cp hwwtui-{{wallet}}-*.tar.gz /out/'
+    @echo "Output in out/"
+    @ls -lh out/hwwtui-{{wallet}}-*.tar.gz 2>/dev/null
