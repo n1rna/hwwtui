@@ -236,9 +236,19 @@ impl Emulator for TrezorEmulator {
             _ => std::env::var("LD_LIBRARY_PATH").unwrap_or_default(),
         };
 
+        // Set MICROPYPATH so the emulator finds its Python modules in src/.
+        let src_dir = self.firmware_path.join("src");
+        let micropypath = if src_dir.is_dir() {
+            src_dir.display().to_string()
+        } else {
+            // Fallback: standard trezor-firmware layout
+            String::new()
+        };
+
         let child = Command::new(&binary)
             .current_dir(&self.firmware_path)
             .env("LD_LIBRARY_PATH", &ld_library_path)
+            .env("MICROPYPATH", &micropypath)
             .env("TREZOR_PROFILE_DIR", &self.profile_dir)
             // Suppress SDL window; the TUI renders the screen itself later.
             .env("SDL_VIDEODRIVER", "offscreen")
