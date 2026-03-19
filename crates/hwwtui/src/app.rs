@@ -82,7 +82,9 @@ pub struct DevicePane {
     pub download_progress_rx: Option<watch::Receiver<BundleStatus>>,
     /// Debug link client for the Trezor emulator (UDP port 21325).
     pub debug_link: Option<TrezorDebugLink>,
-    pub wire_client: Option<TrezorWireClient>,
+    /// Wire port for on-demand connections (not persistent to avoid
+    /// interfering with external apps like sigvault).
+    pub wire_port: Option<u16>,
     /// Screen title extracted from the last debug-link poll.
     pub screen_title: String,
     /// Screen text content lines from the last debug-link poll.
@@ -119,7 +121,7 @@ impl DevicePane {
             bundle_status,
             download_progress_rx: None,
             debug_link: None,
-            wire_client: None,
+            wire_port: None,
             screen_title: String::new(),
             screen_content: Vec::new(),
             screen_buttons: Vec::new(),
@@ -597,18 +599,10 @@ impl App {
                 }
             }
 
-            // Also connect the wire client to the main port.
-            let wire_port = debug_port - 1; // 21324
-            match TrezorWireClient::connect(wire_port).await {
-                Ok(wc) => {
-                    self.panes[idx].wire_client = Some(wc);
-                    self.panes[idx]
-                        .push_method("→", format!("Wire client connected (UDP :{wire_port})"));
-                }
-                Err(e) => {
-                    self.panes[idx].push_method("!", format!("Wire client failed: {e}"));
-                }
-            }
+            // Store wire port for on-demand commands (i/l keys).
+            // We don't keep a persistent connection to avoid interfering
+            // with external apps connecting to the emulator.
+            self.panes[idx].wire_port = Some(debug_port - 1);
         }
     }
 
@@ -624,7 +618,7 @@ impl App {
         pane.bridge = None;
         pane.bridge_rx = None;
         pane.debug_link = None;
-        pane.wire_client = None;
+        pane.wire_port = None;
         pane.screen_title = String::new();
         pane.screen_content = Vec::new();
         pane.screen_buttons = Vec::new();
@@ -650,7 +644,7 @@ impl App {
             pane.bridge = None;
             pane.bridge_rx = None;
             pane.debug_link = None;
-            pane.wire_client = None;
+            pane.wire_port = None;
             if let Some(emu) = &mut pane.emulator {
                 emu.stop().await.ok();
             }
@@ -894,34 +888,42 @@ impl App {
     /// Send Initialize to the emulator's main wire port.
     async fn wire_initialize(&mut self) {
         let pane = &mut self.panes[self.selected_tab];
-        let Some(wc) = pane.wire_client.take() else {
-            pane.push_method("!", "Wire client not connected".to_string());
+        let Some(port) = pane.wire_port else {
+            pane.push_method("!", "Wire port not set".to_string());
             return;
         };
-        match wc.initialize().await {
-            Ok(data) => {
-                pane.push_method("→", format!("Initialize → Features ({} bytes)", data.len()));
-            }
-            Err(e) => {
-                pane.push_method("!", format!("Initialize failed: {e}"));
-            }
+        // Connect on-demand, use, then drop — no persistent connection.
+        match TrezorWireClient::connect(port).await {
+            Ok(wc) => match wc.initialize().await {
+                Ok(data) => {
+                    pane.push_method("→", format!("Initialize → Features ({} bytes)", data.len()));
+                }
+                Err(e) => pane.push_method("!", format!("Initialize failed: {e}")),
+            },
+            Err(e) => pane.push_method("!", format!("Wire connect failed: {e}")),
         }
-        pane.wire_client = Some(wc);
     }
 
     /// Load a standard test mnemonic onto the emulator.
     async fn wire_load_test_seed(&mut self) {
         let pane = &mut self.panes[self.selected_tab];
-        let Some(wc) = pane.wire_client.take() else {
-            pane.push_method("!", "Wire client not connected".to_string());
+        let Some(port) = pane.wire_port else {
+            pane.push_method("!", "Wire port not set".to_string());
             return;
         };
 
-        // Standard 12-word test mnemonic (BIP39 "all abandon" seed).
         const TEST_MNEMONIC: &str =
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-        // Take the debug link too — load_device needs it to auto-confirm.
+        // Connect on-demand for this command.
+        let wc = match TrezorWireClient::connect(port).await {
+            Ok(wc) => wc,
+            Err(e) => {
+                pane.push_method("!", format!("Wire connect failed: {e}"));
+                return;
+            }
+        };
+
         let dl = pane.debug_link.take();
         match wc
             .load_device(TEST_MNEMONIC, "hwwtui-test", dl.as_ref())
@@ -929,17 +931,13 @@ impl App {
         {
             Ok(_data) => {
                 pane.push_method("→", "LoadDevice → Success (test seed loaded)".to_string());
-                // Re-initialize to get updated features.
-                if let Ok(data) = wc.initialize().await {
-                    pane.push_method("→", format!("Initialize → Features ({} bytes)", data.len()));
-                }
             }
             Err(e) => {
                 pane.push_method("!", format!("LoadDevice failed: {e}"));
             }
         }
-        pane.wire_client = Some(wc);
         pane.debug_link = dl;
+        // wc is dropped here — frees the UDP port for external apps.
     }
 }
 
