@@ -379,7 +379,9 @@ impl App {
                                     host: "127.0.0.1".into(),
                                     port: 15423,
                                 },
-                            );
+                            )
+                            .with_arg("--port")
+                            .with_arg("15423");
                             pane.emulator = Some(Box::new(emu));
                             pane.transport_label = "TCP :15423".to_string();
                         }
