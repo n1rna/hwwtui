@@ -183,6 +183,7 @@ pub struct TrezorWireClient {
 /// Well-known Trezor message types.
 const MSG_INITIALIZE: u16 = 0;
 const MSG_PING: u16 = 1;
+const MSG_LOAD_DEVICE: u16 = 13;
 const MSG_GET_FEATURES: u16 = 55;
 
 impl TrezorWireClient {
@@ -212,6 +213,27 @@ impl TrezorWireClient {
     /// Send GetFeatures (msg type 55, empty payload).
     pub async fn get_features(&self) -> anyhow::Result<Vec<u8>> {
         self.send_and_recv(MSG_GET_FEATURES, &[]).await
+    }
+
+    /// Send LoadDevice with a test mnemonic (debug-only, msg type 13).
+    /// This seeds the emulator so it behaves as an initialized device.
+    ///
+    /// LoadDevice protobuf:
+    ///   field 1 (mnemonics, repeated string) — the seed phrase
+    ///   field 3 (pin, string) — optional PIN
+    ///   field 5 (label, string) — device label
+    ///   field 7 (skip_checksum, bool) — skip mnemonic validation
+    pub async fn load_device(&self, mnemonic: &str, label: &str) -> anyhow::Result<Vec<u8>> {
+        let mut payload = Vec::new();
+        // field 1: mnemonic (repeated string, but we send one)
+        payload.extend(encode_field_string(1, mnemonic));
+        // field 5: label
+        if !label.is_empty() {
+            payload.extend(encode_field_string(5, label));
+        }
+        // field 7: skip_checksum = false (validate the mnemonic)
+        // (omitting it defaults to false, which is what we want)
+        self.send_and_recv(MSG_LOAD_DEVICE, &payload).await
     }
 
     async fn send_and_recv(&self, msg_type: u16, payload: &[u8]) -> anyhow::Result<Vec<u8>> {

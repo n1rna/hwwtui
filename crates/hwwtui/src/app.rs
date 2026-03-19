@@ -38,6 +38,8 @@ pub enum Action {
     RefreshBundleStatus,
     /// Send Initialize to the emulator (triggers Features response).
     InitializeDevice,
+    /// Load a test mnemonic onto the emulator (makes it "initialized").
+    LoadTestSeed,
     /// Press YES on the emulator via the debug link.
     ConfirmSelected,
     /// Press NO on the emulator via the debug link.
@@ -292,6 +294,9 @@ impl App {
                 }
                 Action::InitializeDevice => {
                     self.wire_initialize().await;
+                }
+                Action::LoadTestSeed => {
+                    self.wire_load_test_seed().await;
                 }
                 Action::ConfirmSelected => {
                     self.debug_press(DebugButton::Yes).await;
@@ -899,6 +904,33 @@ impl App {
             }
             Err(e) => {
                 pane.push_method("!", format!("Initialize failed: {e}"));
+            }
+        }
+        pane.wire_client = Some(wc);
+    }
+
+    /// Load a standard test mnemonic onto the emulator.
+    async fn wire_load_test_seed(&mut self) {
+        let pane = &mut self.panes[self.selected_tab];
+        let Some(wc) = pane.wire_client.take() else {
+            pane.push_method("!", "Wire client not connected".to_string());
+            return;
+        };
+
+        // Standard 12-word test mnemonic (BIP39 "all abandon" seed).
+        const TEST_MNEMONIC: &str =
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+        match wc.load_device(TEST_MNEMONIC, "hwwtui-test").await {
+            Ok(_data) => {
+                pane.push_method("→", "LoadDevice → Success (test seed loaded)".to_string());
+                // Re-initialize to get updated features.
+                if let Ok(data) = wc.initialize().await {
+                    pane.push_method("→", format!("Initialize → Features ({} bytes)", data.len()));
+                }
+            }
+            Err(e) => {
+                pane.push_method("!", format!("LoadDevice failed: {e}"));
             }
         }
         pane.wire_client = Some(wc);
