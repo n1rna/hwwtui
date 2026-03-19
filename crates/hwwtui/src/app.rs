@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use bridge::{trezor::TrezorBridge, Bridge, InterceptedMessage};
+use bridge::{Bridge, InterceptedMessage};
 use bundler::{BundleManager, BundleStatus, RemoteBundle};
 use emulators::{
     generic::GenericEmulator, trezor::TrezorEmulator, Emulator, EmulatorStatus, TransportConfig,
@@ -535,37 +535,12 @@ impl App {
             }
         }
 
-        // Start the UHID bridge.
-        let bridge_result = match self.panes[idx].kind {
-            DeviceKind::Trezor => {
-                let port = self.panes[idx]
-                    .emulator
-                    .as_ref()
-                    .and_then(|e| {
-                        if let emulators::TransportConfig::Udp { port, .. } = e.transport() {
-                            Some(port)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(21324);
-
-                let mut bridge = TrezorBridge::new("127.0.0.1", port);
-                match bridge.start().await {
-                    Ok(rx) => {
-                        self.panes[idx].transport_label = format!("UDP :{port}");
-                        self.panes[idx].push_method("→", "Bridge started".to_string());
-                        Some((Box::new(bridge) as Box<dyn Bridge>, rx))
-                    }
-                    Err(e) => {
-                        error!("Failed to start bridge: {e:#}");
-                        self.panes[idx].push_method("!", format!("Bridge failed: {e:#}"));
-                        None
-                    }
-                }
-            }
-            _ => None,
-        };
+        // Note: the UHID bridge is disabled for Trezor because trezor-client
+        // uses rusb (WebUSB) and would incorrectly detect the UHID virtual
+        // device as a real Trezor, then fail to communicate with it.
+        // The Trezor emulator is accessed directly via UDP by trezor-client.
+        let bridge_result: Option<(Box<dyn Bridge>, mpsc::UnboundedReceiver<InterceptedMessage>)> =
+            None;
 
         if let Some((bridge, rx)) = bridge_result {
             let label = self.panes[idx].label.clone();
