@@ -295,10 +295,14 @@ impl App {
                     self.refresh_bundle_status();
                 }
                 Action::InitializeDevice => {
-                    self.wire_initialize().await;
+                    if self.selected_pane().kind == DeviceKind::Trezor {
+                        self.wire_initialize().await;
+                    }
                 }
                 Action::LoadTestSeed => {
-                    self.wire_load_test_seed().await;
+                    if self.selected_pane().kind == DeviceKind::Trezor {
+                        self.wire_load_test_seed().await;
+                    }
                 }
                 Action::ConfirmSelected => {
                     self.debug_press(DebugButton::Yes).await;
