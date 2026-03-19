@@ -535,6 +535,8 @@ impl App {
                 self.panes[idx].push_method("!", format!("Start failed: {e:#}"));
                 return;
             }
+            let label = self.panes[idx].transport_label.clone();
+            self.panes[idx].push_method("→", format!("Emulator started ({label})"));
         }
 
         // Note: the UHID bridge is disabled for Trezor because trezor-client
