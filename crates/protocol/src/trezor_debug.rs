@@ -73,8 +73,10 @@ impl TrezorDebugLink {
     /// contains the screen as a sequence of JSON strings that together form a
     /// complete JSON object when concatenated.
     pub async fn get_layout(&self) -> anyhow::Result<Vec<String>> {
-        // DebugLinkGetState: field 3 (wait_layout) = 2 (CURRENT_LAYOUT)
-        let payload = encode_field_varint(3, 2);
+        // DebugLinkGetState: field 3 (wait_layout) = 0 (IMMEDIATE)
+        // Using IMMEDIATE to avoid blocking the emulator's event loop,
+        // which could interfere with main-port wire protocol responses.
+        let payload = encode_field_varint(3, 0);
         self.send_message(MSG_DEBUG_LINK_GET_STATE, &payload)
             .await?;
 
