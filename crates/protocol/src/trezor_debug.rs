@@ -183,7 +183,11 @@ pub struct TrezorWireClient {
 /// Well-known Trezor message types.
 const MSG_INITIALIZE: u16 = 0;
 const MSG_PING: u16 = 1;
+const MSG_SUCCESS: u16 = 2;
+const MSG_FAILURE: u16 = 3;
 const MSG_LOAD_DEVICE: u16 = 13;
+const MSG_BUTTON_REQUEST: u16 = 26;
+const MSG_BUTTON_ACK: u16 = 27;
 const MSG_GET_FEATURES: u16 = 55;
 
 impl TrezorWireClient {
@@ -216,24 +220,81 @@ impl TrezorWireClient {
     }
 
     /// Send LoadDevice with a test mnemonic (debug-only, msg type 13).
-    /// This seeds the emulator so it behaves as an initialized device.
-    ///
-    /// LoadDevice protobuf:
-    ///   field 1 (mnemonics, repeated string) — the seed phrase
-    ///   field 3 (pin, string) — optional PIN
-    ///   field 5 (label, string) — device label
-    ///   field 7 (skip_checksum, bool) — skip mnemonic validation
-    pub async fn load_device(&self, mnemonic: &str, label: &str) -> anyhow::Result<Vec<u8>> {
+    /// Automatically handles ButtonRequest confirmations via the debug link.
+    pub async fn load_device(
+        &self,
+        mnemonic: &str,
+        label: &str,
+        debug_link: Option<&TrezorDebugLink>,
+    ) -> anyhow::Result<Vec<u8>> {
         let mut payload = Vec::new();
-        // field 1: mnemonic (repeated string, but we send one)
         payload.extend(encode_field_string(1, mnemonic));
-        // field 5: label
         if !label.is_empty() {
             payload.extend(encode_field_string(5, label));
         }
-        // field 7: skip_checksum = false (validate the mnemonic)
-        // (omitting it defaults to false, which is what we want)
-        self.send_and_recv(MSG_LOAD_DEVICE, &payload).await
+
+        // Send LoadDevice.
+        let packets = frame_message(MSG_LOAD_DEVICE, &payload);
+        for pkt in &packets {
+            self.socket.send(pkt).await.context("Wire send failed")?;
+        }
+
+        // Handle ButtonRequest/ButtonAck loop until Success or Failure.
+        self.recv_with_confirm(debug_link).await
+    }
+
+    /// Receive responses, auto-confirming any ButtonRequests via the debug link.
+    async fn recv_with_confirm(
+        &self,
+        debug_link: Option<&TrezorDebugLink>,
+    ) -> anyhow::Result<Vec<u8>> {
+        for _ in 0..10 {
+            let mut buf = [0u8; 64];
+            let (resp_type, data) = {
+                let fut = async {
+                    let n = self.socket.recv(&mut buf).await?;
+                    if n < 9 || buf[0] != 0x3F || buf[1] != 0x23 || buf[2] != 0x23 {
+                        anyhow::bail!("Invalid wire response");
+                    }
+                    let resp_type = u16::from_be_bytes([buf[3], buf[4]]);
+                    let payload_len = u32::from_be_bytes([buf[5], buf[6], buf[7], buf[8]]) as usize;
+                    let mut data = Vec::with_capacity(payload_len);
+                    data.extend_from_slice(&buf[9..n.min(64)]);
+                    while data.len() < payload_len {
+                        let n = self.socket.recv(&mut buf).await?;
+                        data.extend_from_slice(&buf[1..n.min(64)]);
+                    }
+                    data.truncate(payload_len);
+                    Ok((resp_type, data))
+                };
+                tokio::time::timeout(std::time::Duration::from_secs(5), fut)
+                    .await
+                    .context("Wire response timed out")?
+            }?;
+
+            match resp_type {
+                MSG_BUTTON_REQUEST => {
+                    tracing::debug!("Got ButtonRequest, sending ButtonAck + debug confirm");
+                    // Send ButtonAck (empty payload).
+                    let ack = frame_message(MSG_BUTTON_ACK, &[]);
+                    for pkt in &ack {
+                        self.socket.send(pkt).await?;
+                    }
+                    // Auto-confirm via debug link.
+                    if let Some(dl) = debug_link {
+                        let _ = dl.press_button(DebugButton::Yes).await;
+                    }
+                    continue;
+                }
+                MSG_SUCCESS => return Ok(data),
+                MSG_FAILURE => {
+                    let msg = extract_failure_message(&data);
+                    anyhow::bail!("Device failure: {msg}");
+                }
+                _ => return Ok(data),
+            }
+        }
+        anyhow::bail!("Too many ButtonRequests without resolution")
     }
 
     async fn send_and_recv(&self, msg_type: u16, payload: &[u8]) -> anyhow::Result<Vec<u8>> {
@@ -374,6 +435,48 @@ fn encode_field_string(field_num: u32, s: &str) -> Vec<u8> {
 
 /// Extract all `tokens` strings (field 13, repeated string) from a
 /// raw `DebugLinkState` protobuf payload.
+/// Extract the error message (field 2, string) from a Failure protobuf.
+fn extract_failure_message(data: &[u8]) -> String {
+    // Field 2 tag: (2 << 3) | 2 = 18 = 0x12
+    let mut pos = 0;
+    while pos < data.len() {
+        let (tag, tag_len) = decode_varint(&data[pos..]);
+        pos += tag_len;
+        let wire_type = tag & 0x7;
+        if tag == 0x12 && wire_type == 2 && pos < data.len() {
+            {
+                let (str_len, len_bytes) = decode_varint(&data[pos..]);
+                pos += len_bytes;
+                let end = pos + str_len as usize;
+                if end <= data.len() {
+                    return std::str::from_utf8(&data[pos..end])
+                        .unwrap_or("(invalid utf8)")
+                        .to_string();
+                }
+            }
+        }
+        // Skip field
+        match wire_type {
+            0 => {
+                let (_, n) = decode_varint(&data[pos..]);
+                pos += n;
+            }
+            1 => pos += 8,
+            2 => {
+                if pos < data.len() {
+                    let (len, n) = decode_varint(&data[pos..]);
+                    pos += n + len as usize;
+                } else {
+                    break;
+                }
+            }
+            5 => pos += 4,
+            _ => break,
+        }
+    }
+    "(unknown error)".to_string()
+}
+
 fn parse_tokens_field(data: &[u8]) -> Vec<String> {
     // Field 13 tag: (13 << 3) | 2 = 106 = 0x6A
     const TOKENS_TAG: u64 = 0x6A;

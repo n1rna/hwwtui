@@ -921,7 +921,12 @@ impl App {
         const TEST_MNEMONIC: &str =
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-        match wc.load_device(TEST_MNEMONIC, "hwwtui-test").await {
+        // Take the debug link too — load_device needs it to auto-confirm.
+        let dl = pane.debug_link.take();
+        match wc
+            .load_device(TEST_MNEMONIC, "hwwtui-test", dl.as_ref())
+            .await
+        {
             Ok(_data) => {
                 pane.push_method("→", "LoadDevice → Success (test seed loaded)".to_string());
                 // Re-initialize to get updated features.
@@ -934,6 +939,7 @@ impl App {
             }
         }
         pane.wire_client = Some(wc);
+        pane.debug_link = dl;
     }
 }
 
