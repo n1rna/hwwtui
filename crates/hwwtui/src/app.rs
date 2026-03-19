@@ -761,7 +761,15 @@ impl App {
     pub fn poll_firmware_logs(&mut self) {
         for pane in &mut self.panes {
             if let Some(emu) = &mut pane.emulator {
-                for line in emu.drain_output() {
+                let lines = emu.drain_output();
+                if !lines.is_empty() {
+                    tracing::debug!(
+                        wallet = %pane.label,
+                        count = lines.len(),
+                        "Drained firmware log lines"
+                    );
+                }
+                for line in lines {
                     pane.push_firmware_log(line);
                 }
             }
