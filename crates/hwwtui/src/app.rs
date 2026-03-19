@@ -9,7 +9,10 @@ use std::sync::Arc;
 
 use bridge::{trezor::TrezorBridge, Bridge, InterceptedMessage};
 use bundler::{BundleManager, BundleStatus, RemoteBundle};
-use emulators::{trezor::TrezorEmulator, Emulator, EmulatorStatus, WalletType};
+use emulators::{
+    generic::GenericEmulator, trezor::TrezorEmulator, Emulator, EmulatorStatus, TransportConfig,
+    WalletType,
+};
 use protocol::trezor_debug::{
     parse_layout_tokens, DebugButton, ParsedLayout, SwipeDirection, TrezorDebugLink,
     TrezorWireClient,
@@ -354,25 +357,164 @@ impl App {
                         }
                     }
                 }
-                _ => {
-                    // Other devices: check bundle but no emulator implemented yet.
+                DeviceKind::BitBox02 => {
                     let wallet_type = device_kind_to_wallet_type(pane.kind);
-                    if matches!(
-                        self.bundle_manager.status(wallet_type),
-                        BundleStatus::NotInstalled
-                    ) {
-                        pane.push_method(
-                            "!",
-                            "No bundle installed. Press [d] to download the firmware bundle."
-                                .to_string(),
-                        );
-                    } else {
-                        pane.push_method(
-                            "!",
-                            format!("{} emulator not yet implemented.", pane.label),
-                        );
+                    match self.bundle_manager.emulator_binary_path(wallet_type) {
+                        Some(bin_path) => {
+                            let bundle_dir =
+                                bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
+                            let emu = GenericEmulator::new(
+                                WalletType::BitBox02,
+                                bin_path,
+                                bundle_dir,
+                                PathBuf::from("/tmp/hwwtui-bitbox02"),
+                                TransportConfig::Tcp {
+                                    host: "127.0.0.1".into(),
+                                    port: 15423,
+                                },
+                            );
+                            pane.emulator = Some(Box::new(emu));
+                            pane.transport_label = "TCP :15423".to_string();
+                        }
+                        None => {
+                            pane.push_method(
+                                "!",
+                                "No bundle installed. Press [d] to download the firmware bundle."
+                                    .to_string(),
+                            );
+                            return;
+                        }
                     }
-                    return;
+                }
+                DeviceKind::Coldcard => {
+                    let wallet_type = device_kind_to_wallet_type(pane.kind);
+                    match self.bundle_manager.emulator_binary_path(wallet_type) {
+                        Some(bin_path) => {
+                            // The Coldcard simulator must be launched from unix/ with
+                            // micropython as the binary and simulator.py as the script.
+                            let bundle_dir =
+                                bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
+                            let shared_dir = bundle_dir.join("shared");
+                            let unix_dir = bundle_dir.join("unix");
+                            let micropypath = shared_dir.display().to_string();
+                            let emu = GenericEmulator::new(
+                                WalletType::Coldcard,
+                                bin_path,
+                                unix_dir,
+                                PathBuf::from("/tmp/hwwtui-coldcard"),
+                                TransportConfig::UnixSocket {
+                                    path: PathBuf::from("/tmp/ckcc-simulator.sock"),
+                                },
+                            )
+                            .with_env("MICROPYPATH", &micropypath)
+                            .with_arg("-i")
+                            .with_arg("./unix/simulator.py");
+                            pane.emulator = Some(Box::new(emu));
+                            pane.transport_label = "Unix /tmp/ckcc-simulator.sock".to_string();
+                        }
+                        None => {
+                            pane.push_method(
+                                "!",
+                                "No bundle installed. Press [d] to download the firmware bundle."
+                                    .to_string(),
+                            );
+                            return;
+                        }
+                    }
+                }
+                DeviceKind::Specter => {
+                    let wallet_type = device_kind_to_wallet_type(pane.kind);
+                    match self.bundle_manager.emulator_binary_path(wallet_type) {
+                        Some(bin_path) => {
+                            let bundle_dir =
+                                bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
+                            let src_dir = bundle_dir.join("src");
+                            let micropypath = src_dir.display().to_string();
+                            let emu = GenericEmulator::new(
+                                WalletType::Specter,
+                                bin_path,
+                                bundle_dir,
+                                PathBuf::from("/tmp/hwwtui-specter"),
+                                TransportConfig::Tcp {
+                                    host: "127.0.0.1".into(),
+                                    port: 8789,
+                                },
+                            )
+                            .with_env("MICROPYPATH", &micropypath);
+                            pane.emulator = Some(Box::new(emu));
+                            pane.transport_label = "TCP :8789".to_string();
+                        }
+                        None => {
+                            pane.push_method(
+                                "!",
+                                "No bundle installed. Press [d] to download the firmware bundle."
+                                    .to_string(),
+                            );
+                            return;
+                        }
+                    }
+                }
+                DeviceKind::Ledger => {
+                    let wallet_type = device_kind_to_wallet_type(pane.kind);
+                    match self.bundle_manager.emulator_binary_path(wallet_type) {
+                        Some(bin_path) => {
+                            let bundle_dir =
+                                bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
+                            let emu = GenericEmulator::new(
+                                WalletType::Ledger,
+                                // The runner script lives in the bundle dir.
+                                bundle_dir.join("speculos-runner.sh"),
+                                bundle_dir,
+                                PathBuf::from("/tmp/hwwtui-ledger"),
+                                TransportConfig::Tcp {
+                                    host: "127.0.0.1".into(),
+                                    port: 9999,
+                                },
+                            )
+                            .with_startup_timeout(std::time::Duration::from_secs(30));
+                            pane.emulator = Some(Box::new(emu));
+                            pane.transport_label = "TCP :9999".to_string();
+                        }
+                        None => {
+                            pane.push_method(
+                                "!",
+                                "No bundle installed. Press [d] to download the firmware bundle."
+                                    .to_string(),
+                            );
+                            return;
+                        }
+                    }
+                }
+                DeviceKind::Jade => {
+                    let wallet_type = device_kind_to_wallet_type(pane.kind);
+                    match self.bundle_manager.emulator_binary_path(wallet_type) {
+                        Some(bin_path) => {
+                            let bundle_dir =
+                                bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
+                            let emu = GenericEmulator::new(
+                                WalletType::Jade,
+                                // The runner script loads the QEMU image via Docker.
+                                bundle_dir.join("jade-runner.sh"),
+                                bundle_dir,
+                                PathBuf::from("/tmp/hwwtui-jade"),
+                                TransportConfig::Tcp {
+                                    host: "127.0.0.1".into(),
+                                    port: 30121,
+                                },
+                            )
+                            .with_startup_timeout(std::time::Duration::from_secs(30));
+                            pane.emulator = Some(Box::new(emu));
+                            pane.transport_label = "TCP :30121".to_string();
+                        }
+                        None => {
+                            pane.push_method(
+                                "!",
+                                "No bundle installed. Press [d] to download the firmware bundle."
+                                    .to_string(),
+                            );
+                            return;
+                        }
+                    }
                 }
             }
         }

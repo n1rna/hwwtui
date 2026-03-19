@@ -4,6 +4,7 @@
 //! additions) and exposes a uniform [`Emulator`] trait so the TUI can manage
 //! all devices the same way.
 
+pub mod generic;
 pub mod trezor;
 
 use std::path::PathBuf;
