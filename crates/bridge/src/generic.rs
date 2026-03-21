@@ -352,10 +352,19 @@ impl Bridge for GenericBridge {
                         let Some(first_report) = first_report else { return; };
 
                         debug!("UnixDgram relay: connecting to {}", path_clone.display());
-                        let dgram = match tokio::net::UnixDatagram::unbound() {
+
+                        // Bind to an explicit path so the simulator can send
+                        // responses back (unbound sockets get abstract autobind
+                        // addresses that MicroPython can't sendto).
+                        let client_path = format!(
+                            "/tmp/hwwtui-cc-bridge-{}.sock",
+                            std::process::id()
+                        );
+                        let _ = std::fs::remove_file(&client_path);
+                        let dgram = match tokio::net::UnixDatagram::bind(&client_path) {
                             Ok(s) => s,
                             Err(e) => {
-                                error!("UnixDgram relay: failed to create socket: {e}");
+                                error!("UnixDgram relay: failed to bind {client_path}: {e}");
                                 running.store(false, Ordering::SeqCst);
                                 return;
                             }
