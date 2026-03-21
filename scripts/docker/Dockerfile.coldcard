@@ -9,9 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates rsync jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone Coldcard firmware (full depth — some submodules don't support shallow)
+# Clone Coldcard firmware and checkout a v6.x tag (required by async-hwi >= 6.2.1)
 RUN git clone --recurse-submodules \
-    https://github.com/Coldcard/firmware.git /build/coldcard-firmware
+    https://github.com/Coldcard/firmware.git /build/coldcard-firmware && \
+    cd /build/coldcard-firmware && \
+    git checkout 2025-11-25T1618-v6.4.1X && \
+    git submodule update --init --recursive
 
 WORKDIR /build
 
