@@ -67,16 +67,20 @@ cp "${MP_BIN}" "${BUNDLE_DIR}/micropython"
 chmod +x "${BUNDLE_DIR}/micropython"
 
 # Runtime data: shared/ has the Python modules the simulator imports.
-rsync -a \
+# Use -L to follow symlinks (many modules are symlinked from external/).
+rsync -aL \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     "${FIRMWARE_DIR}/shared/" "${BUNDLE_DIR}/shared/"
 
-rsync -a \
+rsync -aL \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='*.o' \
-    "${FIRMWARE_DIR}/unix/" "${BUNDLE_DIR}/unix/"
+    --exclude='l-port' \
+    --exclude='l-mpy' \
+    --exclude='coldcard-mpy' \
+    "${FIRMWARE_DIR}/unix/" "${BUNDLE_DIR}/unix/" || true
 
 CONTENTS=$(cd "${BUNDLE_DIR}" && find . -type f | sort | jq -R -s 'split("\n") | map(select(length > 0))')
 cat > "${BUNDLE_DIR}/bundle-info.json" <<EOF

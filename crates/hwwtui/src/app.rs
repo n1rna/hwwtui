@@ -438,20 +438,14 @@ impl App {
                     let wallet_type = device_kind_to_wallet_type(pane.kind);
                     match self.bundle_manager.emulator_binary_path(wallet_type) {
                         Some(bin_path) => {
-                            // The Coldcard simulator runs micropython with sim_boot.py
-                            // in headless mode.  We use a wrapper script that sets up
-                            // the file descriptors and working directory.
+                            // The Coldcard simulator needs open file descriptors
+                            // for display/LED/data pipes.  We use a shell wrapper
+                            // that opens /dev/null fds and launches micropython
+                            // with sim_boot.py in headless mode.
                             let bundle_dir =
                                 bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
-                            let shared_dir = bundle_dir.join("shared");
                             let unix_dir = bundle_dir.join("unix");
                             let work_dir = unix_dir.join("work");
-                            let micropypath = format!(
-                                "{}:{}",
-                                shared_dir.display(),
-                                unix_dir.display()
-                            );
-                            let sim_boot = unix_dir.join("sim_boot.py");
                             let socket_path = PathBuf::from("/tmp/ckcc-simulator.sock");
 
                             // Clean up stale socket from previous runs.
@@ -462,25 +456,36 @@ impl App {
                                 std::fs::create_dir_all(work_dir.join(sub)).ok();
                             }
 
+                            // Launch via bash — we need to open /dev/null fds
+                            // for the simulator's display/LED/data pipes.
+                            let shared_dir = bundle_dir.join("shared");
+                            let sim_boot = unix_dir.join("sim_boot.py");
+                            let mpy_bin = bin_path.to_str().unwrap().to_string();
+                            let shared_str = shared_dir.to_str().unwrap().to_string();
+                            let sim_boot_str = sim_boot.to_str().unwrap().to_string();
+                            let sock_str = socket_path.to_str().unwrap().to_string();
+
+                            let bash_cmd = format!(
+                                "exec 10>/dev/null 11>/dev/null 12>/dev/null; \
+                                 exec {mpy_bin} -X heapsize=9m {sim_boot_str} 10 -1 11 12 {sock_str}"
+                            );
+
                             let emu = GenericEmulator::new(
                                 WalletType::Coldcard,
-                                bin_path,
+                                PathBuf::from("/bin/bash"),
                                 work_dir,
                                 PathBuf::from("/tmp/hwwtui-coldcard"),
+                                // Coldcard uses DGRAM Unix sockets, not STREAM.
+                                // For now, use UnixSocket transport which probes
+                                // with STREAM connect — this will need updating
+                                // to DGRAM probing once the bridge supports it.
                                 TransportConfig::UnixSocket {
                                     path: socket_path.clone(),
                                 },
                             )
-                            .with_env("MICROPYPATH", &micropypath)
-                            .with_arg("-X")
-                            .with_arg("heapsize=9m")
-                            .with_arg("-i")
-                            .with_arg(sim_boot.to_str().unwrap())
-                            .with_arg("0")  // display_w (ignored in headless — fd 0 = stdin)
-                            .with_arg("-1") // numpad_r (unused)
-                            .with_arg("0")  // led_w (ignored)
-                            .with_arg("0")  // data_r (ignored)
-                            .with_arg(socket_path.to_str().unwrap());
+                            .with_env("MICROPYPATH", &format!(":{shared_str}"))
+                            .with_arg("-c")
+                            .with_arg(&bash_cmd);
                             pane.emulator = Some(Box::new(emu));
                             pane.transport_label = "Unix /tmp/ckcc-simulator.sock".to_string();
                         }

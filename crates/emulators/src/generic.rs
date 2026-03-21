@@ -215,10 +215,35 @@ impl GenericEmulator {
                 if !path.exists() {
                     return false;
                 }
-                tokio::time::timeout(PROBE_CONNECT_TIMEOUT, tokio::net::UnixStream::connect(path))
-                    .await
-                    .map(|r| r.is_ok())
-                    .unwrap_or(false)
+                // Try STREAM first, then DGRAM (Coldcard uses DGRAM sockets).
+                let stream_ok = tokio::time::timeout(
+                    PROBE_CONNECT_TIMEOUT,
+                    tokio::net::UnixStream::connect(path),
+                )
+                .await
+                .map(|r| r.is_ok())
+                .unwrap_or(false);
+
+                if stream_ok {
+                    return true;
+                }
+
+                // DGRAM probe: just check the socket file exists and is a socket.
+                // We can't "connect" to verify the server is listening with DGRAM
+                // the same way, but the file existing as a socket is sufficient.
+                tokio::task::spawn_blocking({
+                    let path = path.clone();
+                    move || {
+                        use std::os::unix::net::UnixDatagram;
+                        let client = match UnixDatagram::unbound() {
+                            Ok(s) => s,
+                            Err(_) => return false,
+                        };
+                        client.connect(&path).is_ok()
+                    }
+                })
+                .await
+                .unwrap_or(false)
             }
             TransportConfig::Udp { .. } => {
                 // UDP probing is handled by TrezorEmulator; this type should
