@@ -1054,18 +1054,19 @@ impl App {
 
         pane.push_method("→", "Initializing BitBox02 simulator…".to_string());
 
-        // bitbox-api's simulator TcpClient uses blocking std::net I/O
-        // inside async fns.  We spawn a blocking thread with its own
-        // multi-threaded runtime so the blocking reads don't stall the TUI.
-        let result = tokio::task::spawn_blocking(|| {
-
+        // bitbox-api uses blocking std::net I/O inside async fns.
+        // We must run it on a completely separate OS thread with its own
+        // tokio runtime — NOT via spawn_blocking (which inherits the outer
+        // runtime context and causes block_on to panic/deadlock).
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
                 .build()
-                .map_err(|e| format!("runtime build failed: {e}"))?;
+                .expect("runtime build failed");
 
-            rt.block_on(async {
+            let result = rt.block_on(async {
                 let noise_config = Box::new(bitbox_api::NoiseConfigNoCache {});
 
                 let bitbox =
@@ -1092,15 +1093,12 @@ impl App {
                     .map_err(|e| format!("restore failed: {e:?}"))?;
 
                 Ok::<(), String>(())
-            })
-        })
-        .await;
+            });
+            let _ = tx.send(result);
+        });
 
+        let result = rx.await.unwrap_or(Err("init thread died".to_string()));
         let idx = self.selected_tab;
-        let result = match result {
-            Ok(inner) => inner,
-            Err(e) => Err(format!("task panicked: {e}")),
-        };
 
         match result {
             Ok(()) => {

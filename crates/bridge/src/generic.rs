@@ -82,6 +82,7 @@ pub struct GenericBridge {
     config: GenericBridgeConfig,
     running: Arc<AtomicBool>,
     shutdown_tx: Vec<oneshot::Sender<()>>,
+    task_handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl GenericBridge {
@@ -90,6 +91,7 @@ impl GenericBridge {
             config,
             running: Arc::new(AtomicBool::new(false)),
             shutdown_tx: Vec::new(),
+            task_handles: Vec::new(),
         }
     }
 
@@ -103,9 +105,12 @@ impl GenericBridge {
         std::thread::spawn(move || {
             debug!("GenericBridge UHID thread started");
             loop {
-                if shutdown_rx.try_recv().is_ok() {
-                    debug!("GenericBridge UHID thread received shutdown");
-                    break;
+                match shutdown_rx.try_recv() {
+                    Ok(()) | Err(oneshot::error::TryRecvError::Closed) => {
+                        debug!("GenericBridge UHID thread shutting down");
+                        break;
+                    }
+                    Err(oneshot::error::TryRecvError::Empty) => {}
                 }
 
                 // Write: drain pending input reports (emulator → host).
@@ -191,7 +196,7 @@ impl Bridge for GenericBridge {
                 {
                     let tx = intercept_tx.clone();
                     let running = Arc::clone(&running);
-                    tokio::spawn(async move {
+                    let handle = tokio::spawn(async move {
                         let mut buf = vec![0u8; report_size];
                         loop {
                             tokio::select! {
@@ -218,12 +223,13 @@ impl Bridge for GenericBridge {
                             }
                         }
                     });
+                    self.task_handles.push(handle);
                 }
 
                 // Task B: host → emulator (UHID read → TCP write)
                 {
                     let tx = intercept_tx;
-                    tokio::spawn(async move {
+                    let handle = tokio::spawn(async move {
                         while let Some(report) = uhid_read_rx.recv().await {
                             let _ = tx.send(InterceptedMessage::new(
                                 Direction::HostToDevice, &report, None,
@@ -240,6 +246,7 @@ impl Bridge for GenericBridge {
                         }
                         debug!("Host→emulator task exiting");
                     });
+                    self.task_handles.push(handle);
                 }
             }
             BridgeTransport::Unix { path } => {
@@ -278,7 +285,7 @@ impl Bridge for GenericBridge {
                         }
 
                         let tx2 = tx.clone();
-                        let running2 = Arc::clone(&running);
+                        let _running2 = Arc::clone(&running);
                         let uhid_write = uhid_write_tx.clone();
                         let read_task = tokio::spawn(async move {
                             let mut buf = vec![0u8; report_size];
@@ -330,8 +337,16 @@ impl Bridge for GenericBridge {
 
     async fn stop(&mut self) -> anyhow::Result<()> {
         info!(name = %self.config.name, "Stopping GenericBridge");
+        // Signal shutdown.
         self.shutdown_tx.clear();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Abort all relay tasks — this drops the TCP streams,
+        // closing the connection to the emulator immediately.
+        // Without abort, read_exact blocks forever when idle.
+        for handle in self.task_handles.drain(..) {
+            handle.abort();
+        }
+        // Brief wait for the UHID thread to exit.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         self.running.store(false, Ordering::SeqCst);
         Ok(())
     }
