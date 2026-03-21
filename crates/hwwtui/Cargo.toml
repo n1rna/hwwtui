@@ -21,3 +21,4 @@ emulators = { path = "../emulators" }
 bridge = { path = "../bridge" }
 protocol = { path = "../protocol" }
 bundler = { path = "../bundler" }
+bitbox-api = { version = "0.9.0", default-features = false, features = ["simulator", "multithreaded", "tokio"] }

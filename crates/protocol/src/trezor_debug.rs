@@ -190,6 +190,9 @@ const MSG_FAILURE: u16 = 3;
 const MSG_LOAD_DEVICE: u16 = 13;
 const MSG_BUTTON_REQUEST: u16 = 26;
 const MSG_BUTTON_ACK: u16 = 27;
+const MSG_GET_PUBLIC_KEY: u16 = 11;
+#[allow(dead_code)]
+const MSG_PUBLIC_KEY: u16 = 12;
 const MSG_GET_FEATURES: u16 = 55;
 
 impl TrezorWireClient {
@@ -221,6 +224,39 @@ impl TrezorWireClient {
         self.send_and_recv(MSG_GET_FEATURES, &[]).await
     }
 
+    /// Send GetPublicKey for a BIP32 path.
+    ///
+    /// `path` contains raw BIP32 path components (use `0x80000000 | n` for
+    /// hardened derivation).  Returns the raw PublicKey protobuf bytes.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // m/84'/0'/0'
+    /// let path = &[0x80000000 | 84, 0x80000000, 0x80000000];
+    /// let resp = wc.get_public_key(path, None).await?;
+    /// ```
+    pub async fn get_public_key(
+        &self,
+        path: &[u32],
+        debug_link: Option<&TrezorDebugLink>,
+    ) -> anyhow::Result<Vec<u8>> {
+        let mut payload = Vec::new();
+        // Field 1 (address_n): repeated uint32, each encoded as varint.
+        for &component in path {
+            payload.extend(encode_field_varint(1, component as u64));
+        }
+        // Field 4 (coin_name): "Bitcoin"
+        payload.extend(encode_field_string(4, "Bitcoin"));
+
+        let packets = frame_message(MSG_GET_PUBLIC_KEY, &payload);
+        for pkt in &packets {
+            self.socket.send(pkt).await.context("Wire send failed")?;
+        }
+
+        self.recv_with_confirm(debug_link).await
+    }
+
     /// Send LoadDevice with a test mnemonic (debug-only, msg type 13).
     /// Automatically handles ButtonRequest confirmations via the debug link.
     pub async fn load_device(
@@ -232,7 +268,7 @@ impl TrezorWireClient {
         let mut payload = Vec::new();
         payload.extend(encode_field_string(1, mnemonic));
         if !label.is_empty() {
-            payload.extend(encode_field_string(5, label));
+            payload.extend(encode_field_string(6, label));
         }
 
         // Send LoadDevice.
@@ -437,6 +473,60 @@ fn encode_field_string(field_num: u32, s: &str) -> Vec<u8> {
 
 /// Extract all `tokens` strings (field 13, repeated string) from a
 /// raw `DebugLinkState` protobuf payload.
+/// Extract the `xpub` string (field 2) from a raw `PublicKey` protobuf response.
+///
+/// The `PublicKey` message has:
+/// - field 1: `node` (HDNodeType, embedded message)
+/// - field 2: `xpub` (string)
+pub fn extract_xpub(data: &[u8]) -> Option<String> {
+    extract_string_field(data, 2)
+}
+
+/// Extract the `label` string (field 10) from a raw `Features` protobuf response.
+pub fn extract_features_label(data: &[u8]) -> Option<String> {
+    extract_string_field(data, 10)
+}
+
+/// Extract a string field by field number from raw protobuf bytes.
+fn extract_string_field(data: &[u8], field_num: u32) -> Option<String> {
+    let target_tag = ((field_num as u64) << 3) | 2; // wire type 2 (length-delimited)
+    let mut pos = 0;
+    while pos < data.len() {
+        let (tag, tag_len) = decode_varint(&data[pos..]);
+        pos += tag_len;
+        let wire_type = tag & 0x7;
+
+        if tag == target_tag && wire_type == 2 && pos < data.len() {
+            let (str_len, len_bytes) = decode_varint(&data[pos..]);
+            pos += len_bytes;
+            let end = pos + str_len as usize;
+            if end <= data.len() {
+                return std::str::from_utf8(&data[pos..end]).ok().map(|s| s.to_string());
+            }
+        }
+
+        // Skip field
+        match wire_type {
+            0 => {
+                let (_, n) = decode_varint(&data[pos..]);
+                pos += n;
+            }
+            1 => pos += 8,
+            2 => {
+                if pos < data.len() {
+                    let (len, n) = decode_varint(&data[pos..]);
+                    pos += n + len as usize;
+                } else {
+                    break;
+                }
+            }
+            5 => pos += 4,
+            _ => break,
+        }
+    }
+    None
+}
+
 /// Extract the error message (field 2, string) from a Failure protobuf.
 fn extract_failure_message(data: &[u8]) -> String {
     // Field 2 tag: (2 << 3) | 2 = 18 = 0x12

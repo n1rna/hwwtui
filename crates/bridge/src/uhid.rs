@@ -197,6 +197,96 @@ pub const TREZOR_VID: u16 = 0x1209;
 /// Trezor T USB Product ID.
 pub const TREZOR_PID: u16 = 0x53C1;
 
+// ── BitBox02 HID descriptor ──────────────────────────────────────────────────
+
+/// BitBox02 USB Vendor ID.
+pub const BITBOX02_VID: u16 = 0x03EB;
+/// BitBox02 USB Product ID.
+pub const BITBOX02_PID: u16 = 0x2403;
+
+/// HID report descriptor for BitBox02.
+///
+/// Usage Page: Vendor-defined (0xFFFF), Usage 1.
+/// 64-byte Input and Output reports, no report ID.
+pub const BITBOX02_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xFF, 0xFF, // Usage Page (Vendor Defined = 0xFFFF)
+    0x09, 0x01, // Usage (1)
+    0xA1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xC0, // End Collection
+];
+
+// ── Coldcard HID descriptor ─────────────────────────────────────────────────
+
+/// Coldcard USB Vendor ID.
+pub const COLDCARD_VID: u16 = 0xD13E;
+/// Coldcard USB Product ID.
+pub const COLDCARD_PID: u16 = 0xCC10;
+
+/// HID report descriptor for Coldcard.
+///
+/// Usage Page: FIDO Alliance (0xF1D0), Usage 1.
+/// 64-byte Input and Output reports, no report ID.
+pub const COLDCARD_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xD0, 0xF1, // Usage Page (FIDO Alliance = 0xF1D0)
+    0x09, 0x01, // Usage (1)
+    0xA1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xC0, // End Collection
+];
+
+// ── Ledger HID descriptor ───────────────────────────────────────────────────
+
+/// Ledger USB Vendor ID.
+pub const LEDGER_VID: u16 = 0x2C97;
+/// Ledger USB Product ID (Nano S Plus / Nano X).
+pub const LEDGER_PID: u16 = 0x1000;
+
+/// HID report descriptor for Ledger.
+///
+/// Usage Page: Vendor-defined (0xFFA0), Usage 1.
+/// 64-byte Input and Output reports, no report ID.
+pub const LEDGER_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xA0, 0xFF, // Usage Page (Vendor Defined = 0xFFA0)
+    0x09, 0x01, // Usage (1)
+    0xA1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xC0, // End Collection
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +313,38 @@ mod tests {
             0xc0,
             "Last byte must be End Collection"
         );
+    }
+
+    #[test]
+    fn bitbox02_descriptor_valid() {
+        assert_eq!(BITBOX02_HID_REPORT_DESCRIPTOR.len(), 34);
+        assert_eq!(
+            &BITBOX02_HID_REPORT_DESCRIPTOR[..3],
+            &[0x06, 0xFF, 0xFF],
+            "BitBox02 uses vendor usage page 0xFFFF"
+        );
+        assert_eq!(*BITBOX02_HID_REPORT_DESCRIPTOR.last().unwrap(), 0xC0);
+    }
+
+    #[test]
+    fn coldcard_descriptor_valid() {
+        assert_eq!(COLDCARD_HID_REPORT_DESCRIPTOR.len(), 34);
+        assert_eq!(
+            &COLDCARD_HID_REPORT_DESCRIPTOR[..3],
+            &[0x06, 0xD0, 0xF1],
+            "Coldcard uses FIDO usage page 0xF1D0"
+        );
+        assert_eq!(*COLDCARD_HID_REPORT_DESCRIPTOR.last().unwrap(), 0xC0);
+    }
+
+    #[test]
+    fn ledger_descriptor_valid() {
+        assert_eq!(LEDGER_HID_REPORT_DESCRIPTOR.len(), 34);
+        assert_eq!(
+            &LEDGER_HID_REPORT_DESCRIPTOR[..3],
+            &[0x06, 0xA0, 0xFF],
+            "Ledger uses vendor usage page 0xFFA0"
+        );
+        assert_eq!(*LEDGER_HID_REPORT_DESCRIPTOR.last().unwrap(), 0xC0);
     }
 }

@@ -169,14 +169,47 @@ impl GenericEmulator {
     }
 
     /// Probe the configured transport once.  Returns `true` when reachable.
+    ///
+    /// For TCP transports we use `SO_LINGER(0)` so the connection sends RST
+    /// instead of FIN on close.  This prevents emulators like BitBox02 from
+    /// interpreting the probe as a real client connect/disconnect cycle.
     async fn probe_once(&self) -> bool {
         match &self.transport {
             TransportConfig::Tcp { host, port } => {
-                let addr = format!("{host}:{port}");
-                tokio::time::timeout(PROBE_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr))
-                    .await
-                    .map(|r| r.is_ok())
-                    .unwrap_or(false)
+                let addr_str = format!("{host}:{port}");
+                tokio::task::spawn_blocking(move || {
+                    use std::net::TcpStream;
+                    use std::os::unix::io::AsRawFd;
+                    let stream = TcpStream::connect_timeout(
+                        &addr_str.parse().unwrap(),
+                        PROBE_CONNECT_TIMEOUT,
+                    );
+                    match stream {
+                        Ok(s) => {
+                            // Set SO_LINGER with timeout=0 so the socket sends
+                            // RST instead of FIN on close.  This prevents
+                            // emulators (e.g. BitBox02) from seeing a full
+                            // client connect/disconnect cycle.
+                            let linger = libc::linger {
+                                l_onoff: 1,
+                                l_linger: 0,
+                            };
+                            unsafe {
+                                libc::setsockopt(
+                                    s.as_raw_fd(),
+                                    libc::SOL_SOCKET,
+                                    libc::SO_LINGER,
+                                    &linger as *const libc::linger as *const libc::c_void,
+                                    std::mem::size_of::<libc::linger>() as libc::socklen_t,
+                                );
+                            }
+                            true
+                        }
+                        Err(_) => false,
+                    }
+                })
+                .await
+                .unwrap_or(false)
             }
             TransportConfig::UnixSocket { path } => {
                 if !path.exists() {
@@ -468,5 +501,77 @@ mod tests {
         });
         let out = emu.drain_output();
         assert!(out.is_empty());
+    }
+
+    /// Verify that `probe_once` sends RST (not FIN) by checking the listener
+    /// does not observe a clean client session.
+    #[tokio::test]
+    async fn probe_once_rst_does_not_leave_session() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        // Bind a listener and count accepted connections that complete a
+        // graceful shutdown (i.e. read returns Ok(0) indicating FIN).
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let graceful_count = Arc::new(AtomicUsize::new(0));
+
+        let gc = Arc::clone(&graceful_count);
+        let handle = std::thread::spawn(move || {
+            // Accept up to 3 connections with a short timeout.
+            listener.set_nonblocking(false).unwrap();
+            listener
+                .set_nonblocking(false)
+                .ok();
+            for _ in 0..3 {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        stream
+                            .set_read_timeout(Some(Duration::from_millis(200)))
+                            .ok();
+                        let mut buf = [0u8; 1];
+                        use std::io::Read;
+                        match (&stream).read(&mut buf) {
+                            Ok(0) => {
+                                // FIN received — graceful close.
+                                gc.fetch_add(1, Ordering::SeqCst);
+                            }
+                            Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                                // RST received — expected from our probe.
+                            }
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                                || e.kind() == std::io::ErrorKind::TimedOut =>
+                            {
+                                // Timeout — connection dropped without data.
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let emu = make_emu(TransportConfig::Tcp {
+            host: "127.0.0.1".into(),
+            port,
+        });
+
+        // Probe three times.
+        for _ in 0..3 {
+            let result = emu.probe_once().await;
+            assert!(result, "probe should succeed against a listening port");
+        }
+
+        // Give the listener thread time to process.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        drop(handle);
+
+        // With RST probes, the graceful_count should be 0 (no FIN observed).
+        let g = graceful_count.load(Ordering::SeqCst);
+        assert_eq!(
+            g, 0,
+            "Expected 0 graceful closes (FIN), got {g}. Probe should send RST."
+        );
     }
 }

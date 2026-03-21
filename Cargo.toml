@@ -22,6 +22,7 @@ uhid-virt = "0.0.8"
 
 # PTY / Unix
 nix = { version = "0.31.2", features = ["fs", "ioctl", "process", "signal", "term"] }
+libc = "0.2"
 
 # Logging / tracing
 tracing = "0.1.44"

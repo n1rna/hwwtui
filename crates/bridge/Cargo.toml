@@ -12,3 +12,11 @@ tracing = { workspace = true }
 protocol = { path = "../protocol" }
 emulators = { path = "../emulators" }
 uhid-virt = { workspace = true }
+
+[dev-dependencies]
+hidapi = "2"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+bundler = { path = "../bundler" }
+tracing-subscriber = { workspace = true }
+serde_json = { workspace = true }
+bitbox-api = { version = "0.9.0", default-features = false, features = ["simulator", "usb", "multithreaded", "tokio"] }

@@ -39,6 +39,7 @@
 //! KERNEL=="uhid", MODE="0660", GROUP="plugdev"
 //! ```
 
+pub mod generic;
 pub mod trezor;
 pub mod uhid;
 

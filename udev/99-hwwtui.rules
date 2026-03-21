@@ -1,0 +1,31 @@
+# hwwtui — udev rules for UHID bridge and hardware wallet emulators
+#
+# Install:  just setup-udev
+#
+# These rules grant access to:
+# 1. /dev/uhid — needed to CREATE virtual HID devices
+# 2. /dev/hidraw* — needed for apps to OPEN the virtual (and real) devices
+
+# ── /dev/uhid access ─────────────────────────────────────────────────────────
+KERNEL=="uhid", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# ── Real USB hardware wallets (matched by USB VID/PID) ───────────────────────
+# Trezor
+KERNEL=="hidraw*", ATTRS{idVendor}=="534c", ATTRS{idProduct}=="0001", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="53c1", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# BitBox02
+KERNEL=="hidraw*", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2403", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Coldcard
+KERNEL=="hidraw*", ATTRS{idVendor}=="d13e", ATTRS{idProduct}=="cc10", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Ledger
+KERNEL=="hidraw*", ATTRS{idVendor}=="2c97", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# ── UHID virtual devices (matched by HID_ID in parent KERNELS) ──────────────
+# UHID devices lack USB sysfs attributes. The parent kernel name encodes
+# the bus/VID/PID as "0003:VVVV:PPPP.*" where 0003 = BUS_USB.
+# BitBox02 (VID=03EB PID=2403)
+KERNEL=="hidraw*", KERNELS=="0003:03EB:2403.*", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Coldcard (VID=D13E PID=CC10)
+KERNEL=="hidraw*", KERNELS=="0003:D13E:CC10.*", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Ledger (VID=2C97 PID=1000)
+KERNEL=="hidraw*", KERNELS=="0003:2C97:1000.*", MODE="0660", GROUP="plugdev", TAG+="uaccess"

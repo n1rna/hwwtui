@@ -7,6 +7,11 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use bridge::generic::{BridgeTransport, GenericBridge, GenericBridgeConfig};
+use bridge::uhid::{
+    BITBOX02_HID_REPORT_DESCRIPTOR, BITBOX02_PID, BITBOX02_VID, COLDCARD_HID_REPORT_DESCRIPTOR,
+    COLDCARD_PID, COLDCARD_VID, LEDGER_HID_REPORT_DESCRIPTOR, LEDGER_PID, LEDGER_VID,
+};
 use bridge::{Bridge, InterceptedMessage};
 use bundler::{BundleManager, BundleStatus, RemoteBundle};
 use emulators::{
@@ -40,6 +45,8 @@ pub enum Action {
     InitializeDevice,
     /// Load a test mnemonic onto the emulator (makes it "initialized").
     LoadTestSeed,
+    /// Initialize the BitBox02 simulator with a test mnemonic via bitbox-api.
+    InitializeBitBox02,
     /// Press YES on the emulator via the debug link.
     ConfirmSelected,
     /// Press NO on the emulator via the debug link.
@@ -48,6 +55,12 @@ pub enum Action {
     SwipeDown,
     SwipeLeft,
     SwipeRight,
+    /// Switch the left panel to a specific tab index (0=Controls, 1=Screen, 2=Keys).
+    SetLeftTab(usize),
+    /// Switch the right panel to a specific tab index (0=Methods, 1=Firmware, 2=Raw, 3=Bridge).
+    SetRightTab(usize),
+    /// Select a specific device tab by index.
+    SelectTab(usize),
 }
 
 // ── Per-device state ──────────────────────────────────────────────────────────
@@ -184,6 +197,10 @@ pub struct App {
     pub panes: Vec<DevicePane>,
     /// Index of the currently selected tab.
     pub selected_tab: usize,
+    /// Active left panel tab (0=Controls, 1=Screen, 2=Keys).
+    pub left_tab: usize,
+    /// Active right panel tab (0=Methods, 1=Firmware, 2=Raw, 3=Bridge).
+    pub right_tab: usize,
     /// Pending actions to process at the end of each event-loop tick.
     pending_actions: Vec<Action>,
     /// Set to true when the user requests exit.
@@ -234,6 +251,8 @@ impl App {
         Ok(Self {
             panes,
             selected_tab: 0,
+            left_tab: 0,
+            right_tab: 0,
             pending_actions: Vec::new(),
             quit: false,
             bundle_manager,
@@ -304,11 +323,27 @@ impl App {
                         self.wire_load_test_seed().await;
                     }
                 }
+                Action::InitializeBitBox02 => {
+                    if self.selected_pane().kind == DeviceKind::BitBox02 {
+                        self.bitbox02_restore_mnemonic().await;
+                    }
+                }
                 Action::ConfirmSelected => {
                     self.debug_press(DebugButton::Yes).await;
                 }
                 Action::CancelSelected => {
                     self.debug_press(DebugButton::No).await;
+                }
+                Action::SetLeftTab(idx) => {
+                    self.left_tab = idx.min(2);
+                }
+                Action::SetRightTab(idx) => {
+                    self.right_tab = idx.min(3);
+                }
+                Action::SelectTab(idx) => {
+                    if idx < self.panes.len() {
+                        self.selected_tab = idx;
+                    }
                 }
                 Action::SwipeUp => {
                     self.debug_swipe(SwipeDirection::Up).await;
@@ -543,18 +578,68 @@ impl App {
             self.panes[idx].push_method("→", format!("Emulator started ({label})"));
         }
 
-        // Note: the UHID bridge is disabled for Trezor because trezor-client
-        // uses rusb (WebUSB) and would incorrectly detect the UHID virtual
-        // device as a real Trezor, then fail to communicate with it.
-        // The Trezor emulator is accessed directly via UDP by trezor-client.
-        let bridge_result: Option<(Box<dyn Bridge>, mpsc::UnboundedReceiver<InterceptedMessage>)> =
-            None;
+        // Create a UHID bridge for non-Trezor HID wallets so that desktop
+        // apps (e.g. sigvault-desktop) can discover them via hidapi.
+        //
+        // Note: Trezor is excluded because trezor-client uses rusb (WebUSB) and
+        // would incorrectly detect the UHID virtual device as a real Trezor,
+        // then fail to communicate with it.  The Trezor emulator is accessed
+        // directly via UDP by trezor-client.
+        let bridge_config: Option<GenericBridgeConfig> = match self.panes[idx].kind {
+            DeviceKind::BitBox02 => Some(GenericBridgeConfig::new(
+                BITBOX02_VID,
+                BITBOX02_PID,
+                "BitBox02",
+                BITBOX02_HID_REPORT_DESCRIPTOR,
+                BridgeTransport::Tcp {
+                    host: "127.0.0.1".into(),
+                    port: 15423,
+                },
+            )),
+            DeviceKind::Coldcard => Some(GenericBridgeConfig::new(
+                COLDCARD_VID,
+                COLDCARD_PID,
+                "Coldcard (emulated)",
+                COLDCARD_HID_REPORT_DESCRIPTOR,
+                BridgeTransport::Unix {
+                    path: PathBuf::from("/tmp/ckcc-simulator.sock"),
+                },
+            )),
+            DeviceKind::Ledger => Some(GenericBridgeConfig::new(
+                LEDGER_VID,
+                LEDGER_PID,
+                "Ledger (emulated)",
+                LEDGER_HID_REPORT_DESCRIPTOR,
+                BridgeTransport::Tcp {
+                    host: "127.0.0.1".into(),
+                    port: 9999,
+                },
+            )),
+            _ => None,
+        };
 
-        if let Some((bridge, rx)) = bridge_result {
-            let label = self.panes[idx].label.clone();
-            self.panes[idx].bridge = Some(bridge);
-            self.panes[idx].bridge_rx = Some(rx);
-            info!("Device {} started", label);
+        if let Some(cfg) = bridge_config {
+            let wallet_name = cfg.name.clone();
+            let mut bridge = GenericBridge::new(cfg);
+            match bridge.start().await {
+                Ok(rx) => {
+                    self.panes[idx].bridge = Some(Box::new(bridge));
+                    self.panes[idx].bridge_rx = Some(rx);
+                    self.panes[idx]
+                        .push_method("→", format!("UHID bridge started ({wallet_name})"));
+                    info!("UHID bridge started for {}", self.panes[idx].label);
+                }
+                Err(e) => {
+                    // Bridge failure is non-fatal — emulator still works via
+                    // direct socket, just not discoverable via hidapi.
+                    warn!(
+                        "UHID bridge failed for {} (non-fatal): {e:#}",
+                        self.panes[idx].label
+                    );
+                    self.panes[idx]
+                        .push_method("!", format!("UHID bridge unavailable: {e:#}"));
+                }
+            }
         }
 
         // Connect the debug link for Trezor (port = main port + 1).
@@ -929,6 +1014,133 @@ impl App {
         }
         pane.debug_link = dl;
         // wc is dropped here — frees the UDP port for external apps.
+    }
+
+    /// Initialize the BitBox02 simulator with a test mnemonic via the bitbox-api crate.
+    ///
+    /// The simulator auto-confirms UI prompts, so this completes without manual interaction.
+    /// The connection is made directly to TCP port 15423 (the default simulator port).
+    ///
+    /// Because bitbox-api's simulator client uses blocking I/O internally,
+    /// the actual work runs on a blocking thread to avoid freezing the TUI.
+    async fn bitbox02_restore_mnemonic(&mut self) {
+        let pane = &mut self.panes[self.selected_tab];
+
+        if !pane.is_running() {
+            pane.push_method("!", "BitBox02 simulator is not running".to_string());
+            return;
+        }
+
+        // The bridge + simulator form a single TCP session.  When the bridge
+        // disconnects the simulator exits.  We must stop everything, restart
+        // the emulator, initialize it via bitbox-api, then re-create the bridge.
+        if let Some(bridge) = &mut pane.bridge {
+            bridge.stop().await.ok();
+        }
+        pane.bridge = None;
+        pane.bridge_rx = None;
+
+        // Stop and restart the emulator (it dies when the bridge disconnects).
+        if let Some(emu) = &mut pane.emulator {
+            emu.stop().await.ok();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if let Some(emu) = &mut pane.emulator {
+            if let Err(e) = emu.start().await {
+                pane.push_method("!", format!("Emulator restart failed: {e:#}"));
+                return;
+            }
+        }
+
+        pane.push_method("→", "Initializing BitBox02 simulator…".to_string());
+
+        // bitbox-api's simulator TcpClient uses blocking std::net I/O
+        // inside async fns.  We spawn a blocking thread with its own
+        // multi-threaded runtime so the blocking reads don't stall the TUI.
+        let result = tokio::task::spawn_blocking(|| {
+
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|e| format!("runtime build failed: {e}"))?;
+
+            rt.block_on(async {
+                let noise_config = Box::new(bitbox_api::NoiseConfigNoCache {});
+
+                let bitbox =
+                    bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_simulator(
+                        None,
+                        noise_config,
+                    )
+                    .await
+                    .map_err(|e| format!("connect failed: {e:?}"))?;
+
+                let pairing_bitbox = bitbox
+                    .unlock_and_pair()
+                    .await
+                    .map_err(|e| format!("pairing failed: {e:?}"))?;
+
+                let paired_bitbox = pairing_bitbox
+                    .wait_confirm()
+                    .await
+                    .map_err(|e| format!("pair confirm failed: {e:?}"))?;
+
+                paired_bitbox
+                    .restore_from_mnemonic()
+                    .await
+                    .map_err(|e| format!("restore failed: {e:?}"))?;
+
+                Ok::<(), String>(())
+            })
+        })
+        .await;
+
+        let idx = self.selected_tab;
+        let result = match result {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("task panicked: {e}")),
+        };
+
+        match result {
+            Ok(()) => {
+                self.panes[idx].push_method(
+                    "→",
+                    "BitBox02 initialized (mnemonic restored)".to_string(),
+                );
+                info!("BitBox02 simulator initialized successfully");
+            }
+            Err(e) => {
+                self.panes[idx].push_method("!", format!("BitBox02 init: {e}"));
+            }
+        }
+
+        // Wait for the bitbox-api connection to fully close.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Restart the UHID bridge so desktop apps can discover the device.
+        let bridge_cfg = GenericBridgeConfig::new(
+            BITBOX02_VID,
+            BITBOX02_PID,
+            "BitBox02",
+            BITBOX02_HID_REPORT_DESCRIPTOR,
+            BridgeTransport::Tcp {
+                host: "127.0.0.1".into(),
+                port: 15423,
+            },
+        );
+        let mut bridge = GenericBridge::new(bridge_cfg);
+        match bridge.start().await {
+            Ok(rx) => {
+                self.panes[idx].bridge = Some(Box::new(bridge));
+                self.panes[idx].bridge_rx = Some(rx);
+                self.panes[idx].push_method("→", "UHID bridge restarted".to_string());
+            }
+            Err(e) => {
+                self.panes[idx]
+                    .push_method("!", format!("UHID bridge restart failed: {e:#}"));
+            }
+        }
     }
 }
 

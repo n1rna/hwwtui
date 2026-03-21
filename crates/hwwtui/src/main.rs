@@ -31,7 +31,7 @@ mod ui;
 
 use anyhow::Context;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -50,12 +50,19 @@ async fn main() -> anyhow::Result<()> {
 
     info!("hwwtui starting");
 
+    check_uhid_access();
+
     let cfg = config::Config::from_env_or_defaults();
 
     // Set up the terminal.
     enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("Failed to enter alternate screen")?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )
+    .context("Failed to enter alternate screen")?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
 
@@ -65,7 +72,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Always restore the terminal, even on error.
     disable_raw_mode().ok();
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )
+    .ok();
     terminal.show_cursor().ok();
 
     if let Err(e) = result {
@@ -132,7 +144,25 @@ where
                         KeyCode::Char('D') => app.dispatch(Action::RemoveSelected),
                         // Wire protocol commands.
                         KeyCode::Char('i') => app.dispatch(Action::InitializeDevice),
-                        KeyCode::Char('l') => app.dispatch(Action::LoadTestSeed),
+                        KeyCode::Char('l') => {
+                            use config::DeviceKind;
+                            match app.selected_pane().kind {
+                                DeviceKind::Trezor => app.dispatch(Action::LoadTestSeed),
+                                DeviceKind::BitBox02 => {
+                                    app.dispatch(Action::InitializeBitBox02)
+                                }
+                                _ => {}
+                            }
+                        }
+                        // Left panel tab selection (1–3).
+                        KeyCode::Char('1') => app.dispatch(Action::SetLeftTab(0)),
+                        KeyCode::Char('2') => app.dispatch(Action::SetLeftTab(1)),
+                        KeyCode::Char('3') => app.dispatch(Action::SetLeftTab(2)),
+                        // Right panel tab selection (5–8).
+                        KeyCode::Char('5') => app.dispatch(Action::SetRightTab(0)),
+                        KeyCode::Char('6') => app.dispatch(Action::SetRightTab(1)),
+                        KeyCode::Char('7') => app.dispatch(Action::SetRightTab(2)),
+                        KeyCode::Char('8') => app.dispatch(Action::SetRightTab(3)),
                         // Debug link: confirm / cancel / swipe.
                         KeyCode::Enter => app.dispatch(Action::ConfirmSelected),
                         KeyCode::Esc => app.dispatch(Action::CancelSelected),
@@ -141,6 +171,11 @@ where
                         KeyCode::Left => app.dispatch(Action::SwipeLeft),
                         KeyCode::Right => app.dispatch(Action::SwipeRight),
                         _ => {}
+                    }
+                }
+                Event::Mouse(mouse) => {
+                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                        ui::handle_mouse_click(app, mouse.column, mouse.row);
                     }
                 }
                 Event::Resize(_, _) => {} // terminal handles redraw automatically
@@ -179,4 +214,35 @@ fn init_tracing() {
 
     // Print the log path so the user can tail it in another terminal.
     eprintln!("Logging to {}", log_path.display());
+}
+
+// ── Permission checks ────────────────────────────────────────────────────────
+
+/// Check /dev/uhid access and print a helpful message if missing.
+/// Does NOT abort — the TUI will still start, and the bridge will log
+/// a non-fatal warning when it fails to create a UHID device.
+fn check_uhid_access() {
+    use std::path::Path;
+
+    let uhid = Path::new("/dev/uhid");
+    if !uhid.exists() {
+        eprintln!(
+            "Warning: /dev/uhid not found. UHID bridge will be unavailable.\n\
+             Load the kernel module: sudo modprobe uhid"
+        );
+        return;
+    }
+
+    if std::fs::OpenOptions::new()
+        .write(true)
+        .open(uhid)
+        .is_err()
+    {
+        eprintln!(
+            "Warning: /dev/uhid is not writable. UHID bridge will be unavailable.\n\
+             Run:  just setup-udev\n\
+             Or:   sudo cp udev/99-hwwtui.rules /etc/udev/rules.d/ && \
+sudo udevadm control --reload-rules && sudo udevadm trigger"
+        );
+    }
 }

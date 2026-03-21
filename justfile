@@ -42,10 +42,27 @@ fmt:
 # Full CI check (fmt + clippy + test)
 ci: fmt-check lint test
 
-# Grant current user access to /dev/uhid (needed for virtual HID devices)
-setup-uhid:
-    sudo setfacl -m u:$USER:rw /dev/uhid
-    @echo "UHID access granted for $USER"
+# Install udev rules for UHID + hardware wallet HID access (one-time setup)
+setup-udev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Installing udev rules..."
+    sudo cp udev/99-hwwtui.rules /etc/udev/rules.d/
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+    # /dev/uhid already exists, udev trigger won't re-apply rules to it.
+    # Set permissions directly.
+    sudo chmod 0660 /dev/uhid
+    sudo chgrp plugdev /dev/uhid
+    # Ensure current user is in the plugdev group.
+    if ! id -nG "$USER" | grep -qw plugdev; then
+        echo "Adding $USER to plugdev group..."
+        sudo usermod -aG plugdev "$USER"
+        echo "NOTE: Log out and back in for the group change to take effect."
+        echo "      (or run: newgrp plugdev)"
+    fi
+    echo ""
+    echo "Done. /dev/uhid and hardware wallet HID devices are now accessible."
 
 # Tail the log file (run in a separate terminal)
 logs:
