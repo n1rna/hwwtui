@@ -438,25 +438,49 @@ impl App {
                     let wallet_type = device_kind_to_wallet_type(pane.kind);
                     match self.bundle_manager.emulator_binary_path(wallet_type) {
                         Some(bin_path) => {
-                            // The Coldcard simulator must be launched from unix/ with
-                            // micropython as the binary and simulator.py as the script.
+                            // The Coldcard simulator runs micropython with sim_boot.py
+                            // in headless mode.  We use a wrapper script that sets up
+                            // the file descriptors and working directory.
                             let bundle_dir =
                                 bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
                             let shared_dir = bundle_dir.join("shared");
                             let unix_dir = bundle_dir.join("unix");
-                            let micropypath = shared_dir.display().to_string();
+                            let work_dir = unix_dir.join("work");
+                            let micropypath = format!(
+                                "{}:{}",
+                                shared_dir.display(),
+                                unix_dir.display()
+                            );
+                            let sim_boot = unix_dir.join("sim_boot.py");
+                            let socket_path = PathBuf::from("/tmp/ckcc-simulator.sock");
+
+                            // Clean up stale socket from previous runs.
+                            std::fs::remove_file(&socket_path).ok();
+
+                            // Create work directories if needed.
+                            for sub in &["MicroSD", "settings", "VirtDisk", "debug"] {
+                                std::fs::create_dir_all(work_dir.join(sub)).ok();
+                            }
+
                             let emu = GenericEmulator::new(
                                 WalletType::Coldcard,
                                 bin_path,
-                                unix_dir,
+                                work_dir,
                                 PathBuf::from("/tmp/hwwtui-coldcard"),
                                 TransportConfig::UnixSocket {
-                                    path: PathBuf::from("/tmp/ckcc-simulator.sock"),
+                                    path: socket_path.clone(),
                                 },
                             )
                             .with_env("MICROPYPATH", &micropypath)
+                            .with_arg("-X")
+                            .with_arg("heapsize=9m")
                             .with_arg("-i")
-                            .with_arg("./unix/simulator.py");
+                            .with_arg(sim_boot.to_str().unwrap())
+                            .with_arg("0")  // display_w (ignored in headless — fd 0 = stdin)
+                            .with_arg("-1") // numpad_r (unused)
+                            .with_arg("0")  // led_w (ignored)
+                            .with_arg("0")  // data_r (ignored)
+                            .with_arg(socket_path.to_str().unwrap());
                             pane.emulator = Some(Box::new(emu));
                             pane.transport_label = "Unix /tmp/ckcc-simulator.sock".to_string();
                         }

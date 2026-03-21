@@ -545,23 +545,36 @@ async fn coldcard_emulator_starts_and_socket_exists() {
     let bundle_dir = bin.parent().unwrap().to_path_buf();
     let shared_dir = bundle_dir.join("shared");
     let unix_dir = bundle_dir.join("unix");
-    let micropypath = shared_dir.display().to_string();
+    let work_dir = unix_dir.join("work");
+    let micropypath = format!("{}:{}", shared_dir.display(), unix_dir.display());
+    let sim_boot = unix_dir.join("sim_boot.py");
 
     let socket_path = std::path::PathBuf::from("/tmp/ckcc-simulator.sock");
+    std::fs::remove_file(&socket_path).ok();
+    for sub in &["MicroSD", "settings", "VirtDisk", "debug"] {
+        std::fs::create_dir_all(work_dir.join(sub)).ok();
+    }
 
     let mut emu: Box<dyn Emulator> = Box::new(
         emulators::generic::GenericEmulator::new(
             WalletType::Coldcard,
             bin,
-            unix_dir,
+            work_dir,
             std::path::PathBuf::from("/tmp/hwwtui-test-coldcard"),
             TransportConfig::UnixSocket {
                 path: socket_path.clone(),
             },
         )
         .with_env("MICROPYPATH", &micropypath)
+        .with_arg("-X")
+        .with_arg("heapsize=9m")
         .with_arg("-i")
-        .with_arg("./unix/simulator.py"),
+        .with_arg(sim_boot.to_str().unwrap())
+        .with_arg("0")
+        .with_arg("-1")
+        .with_arg("0")
+        .with_arg("0")
+        .with_arg(socket_path.to_str().unwrap()),
     );
 
     emu.start().await.expect("Coldcard start failed");

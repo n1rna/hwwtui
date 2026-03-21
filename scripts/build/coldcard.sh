@@ -33,20 +33,36 @@ make setup || true  # setup's 'tools' target may fail on frozen_content but crea
 make ngu-setup
 make
 
-# Locate the micropython binary (path varies by firmware version).
-MP_BIN=$(find "${FIRMWARE_DIR}/unix" -maxdepth 2 -type f -name 'micropython' | head -1)
+# Locate the Coldcard-patched micropython binary.
+# The Coldcard build produces "coldcard-mpy" (not generic "micropython").
+# It may be at unix/coldcard-mpy, unix/l-port/micropython, or
+# external/micropython/ports/unix/coldcard-mpy depending on version.
+MP_BIN=$(find "${FIRMWARE_DIR}" -maxdepth 5 -type f -name 'coldcard-mpy' ! -path '*/build-*' | head -1)
 if [ -z "${MP_BIN}" ]; then
-    echo "ERROR: micropython binary not found"
-    find "${FIRMWARE_DIR}/unix" -type f -executable | head -20
+    # Fallback: look for the micropython binary in the unix port directory
+    MP_BIN=$(find "${FIRMWARE_DIR}/external/micropython/ports/unix" -maxdepth 1 -type f -name 'micropython' | head -1)
+fi
+if [ -z "${MP_BIN}" ]; then
+    echo "ERROR: Coldcard micropython binary not found"
+    echo "Searched for 'coldcard-mpy' and 'micropython' in ${FIRMWARE_DIR}"
+    find "${FIRMWARE_DIR}" -type f -executable -name '*micropython*' -o -name 'coldcard-mpy' 2>/dev/null | head -20
     exit 1
 fi
-echo "==> Found micropython binary: ${MP_BIN}"
+echo "==> Found Coldcard micropython binary: ${MP_BIN}"
+
+# Verify it has the 'pyb' module (Coldcard-patched build)
+if ! echo "import pyb" | "${MP_BIN}" 2>&1 | grep -q "pyb"; then
+    echo "==> Binary has Coldcard patches (pyb module available)"
+else
+    echo "WARNING: Binary may be generic micropython (missing pyb module)"
+fi
 
 echo "==> Packaging bundle: ${BUNDLE_DIR}"
 cd "${WORK_DIR}"
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"
 
+# Name it "micropython" for consistency with BundleManager discovery.
 cp "${MP_BIN}" "${BUNDLE_DIR}/micropython"
 chmod +x "${BUNDLE_DIR}/micropython"
 
