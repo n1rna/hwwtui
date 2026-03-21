@@ -177,7 +177,7 @@ impl Bridge for GenericBridge {
         let transport = cfg.transport.clone();
         let running = Arc::clone(&self.running);
 
-        // Connect to the emulator eagerly and relay HID reports.
+        // Connect eagerly and relay with two simple tasks.
         match transport {
             BridgeTransport::Tcp { host, port } => {
                 let addr = format!("{host}:{port}");
@@ -199,10 +199,9 @@ impl Bridge for GenericBridge {
                                     match result {
                                         Ok(_) => {
                                             let data = buf.clone();
-                                            let msg = InterceptedMessage::new(
+                                            let _ = tx.send(InterceptedMessage::new(
                                                 Direction::DeviceToHost, &data, None,
-                                            );
-                                            let _ = tx.send(msg);
+                                            ));
                                             let _ = uhid_write_tx.send(data);
                                         }
                                         Err(e) => {
@@ -213,7 +212,7 @@ impl Bridge for GenericBridge {
                                     }
                                 }
                                 _ = &mut shutdown_a_rx => {
-                                    debug!("Emulator→host task received shutdown");
+                                    debug!("Emulator→host task: shutdown");
                                     break;
                                 }
                             }
@@ -226,10 +225,9 @@ impl Bridge for GenericBridge {
                     let tx = intercept_tx;
                     tokio::spawn(async move {
                         while let Some(report) = uhid_read_rx.recv().await {
-                            let msg = InterceptedMessage::new(
+                            let _ = tx.send(InterceptedMessage::new(
                                 Direction::HostToDevice, &report, None,
-                            );
-                            let _ = tx.send(msg);
+                            ));
                             let payload = if !report.is_empty() && report[0] == 0x00 {
                                 &report[1..]
                             } else {
@@ -245,69 +243,85 @@ impl Bridge for GenericBridge {
                 }
             }
             BridgeTransport::Unix { path } => {
-                let stream = tokio::net::UnixStream::connect(&path)
-                    .await
-                    .with_context(|| {
-                        format!("Failed to connect to emulator at {}", path.display())
-                    })?;
-                let (mut read_half, mut write_half) = tokio::io::split(stream);
+                let tx = intercept_tx;
+                let path_clone = path.clone();
 
-                // Task A: emulator → host
-                {
-                    let tx = intercept_tx.clone();
-                    let running = Arc::clone(&running);
-                    tokio::spawn(async move {
-                        let mut buf = vec![0u8; report_size];
-                        loop {
-                            tokio::select! {
-                                result = read_half.read_exact(&mut buf) => {
-                                    match result {
-                                        Ok(_) => {
-                                            let data = buf.clone();
-                                            let msg = InterceptedMessage::new(
-                                                Direction::DeviceToHost, &data, None,
-                                            );
-                                            let _ = tx.send(msg);
-                                            let _ = uhid_write_tx.send(data);
-                                        }
-                                        Err(e) => {
-                                            debug!("Unix read: {e}");
-                                            running.store(false, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    loop {
+                        let first_report = tokio::select! {
+                            report = uhid_read_rx.recv() => report,
+                            _ = &mut shutdown_a_rx => { return; }
+                        };
+                        let Some(first_report) = first_report else { return; };
+
+                        debug!("Unix relay: connecting to {}", path_clone.display());
+                        let stream = match tokio::net::UnixStream::connect(&path_clone).await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                error!("Unix relay: connect failed: {e}");
+                                running.store(false, Ordering::SeqCst);
+                                return;
+                            }
+                        };
+                        let (mut read_half, mut write_half) = tokio::io::split(stream);
+
+                        let payload = if !first_report.is_empty() && first_report[0] == 0x00 {
+                            &first_report[1..]
+                        } else {
+                            &first_report
+                        };
+                        let _ = tx.send(InterceptedMessage::new(
+                            Direction::HostToDevice, &first_report, None,
+                        ));
+                        if write_half.write_all(payload).await.is_err() {
+                            continue;
+                        }
+
+                        let tx2 = tx.clone();
+                        let running2 = Arc::clone(&running);
+                        let uhid_write = uhid_write_tx.clone();
+                        let read_task = tokio::spawn(async move {
+                            let mut buf = vec![0u8; report_size];
+                            loop {
+                                match read_half.read_exact(&mut buf).await {
+                                    Ok(_) => {
+                                        let data = buf.clone();
+                                        let _ = tx2.send(InterceptedMessage::new(
+                                            Direction::DeviceToHost, &data, None,
+                                        ));
+                                        if uhid_write.send(data).is_err() {
                                             break;
                                         }
                                     }
-                                }
-                                _ = &mut shutdown_a_rx => {
-                                    debug!("Emulator→host task received shutdown");
-                                    break;
+                                    Err(_) => break,
                                 }
                             }
-                        }
-                    });
-                }
+                        });
 
-                // Task B: host → emulator
-                {
-                    let tx = intercept_tx;
-                    tokio::spawn(async move {
-                        while let Some(report) = uhid_read_rx.recv().await {
-                            let msg = InterceptedMessage::new(
-                                Direction::HostToDevice, &report, None,
-                            );
-                            let _ = tx.send(msg);
-                            let payload = if !report.is_empty() && report[0] == 0x00 {
-                                &report[1..]
-                            } else {
-                                &report
-                            };
-                            if let Err(e) = write_half.write_all(payload).await {
-                                error!("Unix write to emulator failed: {e}");
+                        loop {
+                            if read_task.is_finished() {
                                 break;
                             }
+                            tokio::select! {
+                                report = uhid_read_rx.recv() => {
+                                    let Some(report) = report else { return; };
+                                    let _ = tx.send(InterceptedMessage::new(
+                                        Direction::HostToDevice, &report, None,
+                                    ));
+                                    let payload = if !report.is_empty() && report[0] == 0x00 {
+                                        &report[1..]
+                                    } else {
+                                        &report
+                                    };
+                                    if write_half.write_all(payload).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                _ = &mut shutdown_a_rx => { return; }
+                            }
                         }
-                        debug!("Host→emulator task exiting");
-                    });
-                }
+                    }
+                });
             }
         }
 

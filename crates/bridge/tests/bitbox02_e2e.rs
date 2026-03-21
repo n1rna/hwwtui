@@ -164,8 +164,12 @@ async fn bitbox02_full_e2e_via_uhid_bridge() {
     };
     eprintln!("  Opened HID device successfully");
 
+    // Set a blocking read timeout so hidapi::read waits for data
+    // rather than returning immediately when no input report is ready.
+    // The relay task needs time to connect TCP and relay the response.
     // ── Phase 4: Communicate via bitbox-api through UHID ───────────────
     eprintln!("Phase 4: bitbox-api via UHID bridge...");
+
     let noise_config = Box::new(bitbox_api::NoiseConfigNoCache {});
     let bitbox =
         bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_hid_device(
