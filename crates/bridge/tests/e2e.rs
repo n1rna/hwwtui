@@ -530,14 +530,13 @@ async fn bitbox02_discoverable_via_uhid_bridge() {
 
 // ── Coldcard E2E ────────────────────────────────────────────────────────────
 
-#[tokio::test]
-#[ignore = "requires Coldcard bundle installed"]
-async fn coldcard_emulator_starts_and_socket_exists() {
-    if !bundle_installed(WalletType::Coldcard) {
-        eprintln!("SKIP: Coldcard bundle not installed");
-        return;
-    }
-
+/// Build a Coldcard [`GenericEmulator`] pointed at the installed bundle.
+///
+/// The Coldcard simulator is a MicroPython binary that opens a DGRAM Unix
+/// socket at `/tmp/ckcc-simulator.sock` to communicate with HID clients.
+fn build_coldcard_emulator(
+    socket_path: &std::path::Path,
+) -> Box<dyn Emulator> {
     let mgr = bundle_manager();
     let bin = mgr
         .emulator_binary_path(WalletType::Coldcard)
@@ -546,46 +545,131 @@ async fn coldcard_emulator_starts_and_socket_exists() {
     let shared_dir = bundle_dir.join("shared");
     let unix_dir = bundle_dir.join("unix");
     let work_dir = unix_dir.join("work");
-    let micropypath = format!("{}:{}", shared_dir.display(), unix_dir.display());
     let sim_boot = unix_dir.join("sim_boot.py");
 
-    let socket_path = std::path::PathBuf::from("/tmp/ckcc-simulator.sock");
-    std::fs::remove_file(&socket_path).ok();
+    // Clean up stale socket.
+    std::fs::remove_file(socket_path).ok();
+
     for sub in &["MicroSD", "settings", "VirtDisk", "debug"] {
         std::fs::create_dir_all(work_dir.join(sub)).ok();
     }
 
-    let mut emu: Box<dyn Emulator> = Box::new(
+    // Launch via bash to open /dev/null file descriptors for the
+    // simulator's display/LED/data pipes.
+    let bash_cmd = format!(
+        "exec 10>/dev/null 11>/dev/null 12>/dev/null; exec {} -X heapsize=9m {} 10 -1 11 12 {}",
+        bin.display(),
+        sim_boot.display(),
+        socket_path.display(),
+    );
+
+    Box::new(
         emulators::generic::GenericEmulator::new(
             WalletType::Coldcard,
-            bin,
+            std::path::PathBuf::from("/bin/bash"),
             work_dir,
             std::path::PathBuf::from("/tmp/hwwtui-test-coldcard"),
             TransportConfig::UnixSocket {
-                path: socket_path.clone(),
+                path: socket_path.to_path_buf(),
             },
         )
-        .with_env("MICROPYPATH", &micropypath)
-        .with_arg("-X")
-        .with_arg("heapsize=9m")
-        .with_arg("-i")
-        .with_arg(sim_boot.to_str().unwrap())
-        .with_arg("0")
-        .with_arg("-1")
-        .with_arg("0")
-        .with_arg("0")
-        .with_arg(socket_path.to_str().unwrap()),
-    );
+        .with_env("MICROPYPATH", &format!(":{}", shared_dir.display()))
+        .with_arg("-c")
+        .with_arg(&bash_cmd),
+    )
+}
+
+#[tokio::test]
+#[ignore = "requires Coldcard bundle installed"]
+async fn coldcard_emulator_starts_and_socket_exists() {
+    if !bundle_installed(WalletType::Coldcard) {
+        eprintln!("SKIP: Coldcard bundle not installed");
+        return;
+    }
+
+    let socket_path = std::path::PathBuf::from("/tmp/ckcc-simulator.sock");
+    std::fs::remove_file(&socket_path).ok();
+
+    let mut emu = build_coldcard_emulator(&socket_path);
 
     emu.start().await.expect("Coldcard start failed");
     assert_eq!(emu.status(), EmulatorStatus::Running);
 
-    assert!(socket_path.exists(), "Coldcard socket should exist");
-    let stream = tokio::net::UnixStream::connect(&socket_path)
-        .await
-        .expect("Unix connect to Coldcard simulator failed");
-    assert!(stream.peer_addr().is_ok());
-    drop(stream);
+    assert!(socket_path.exists(), "Coldcard DGRAM socket should exist");
 
+    // Verify DGRAM connectivity: connect an unbound datagram socket and send
+    // a 64-byte zero-padded report.  The server won't respond to garbage data,
+    // but a successful send proves the socket is live and accepting datagrams.
+    let client = tokio::net::UnixDatagram::unbound()
+        .expect("Failed to create unbound UnixDatagram");
+    client
+        .connect(&socket_path)
+        .expect("UnixDatagram::connect to Coldcard socket failed");
+
+    let report = vec![0u8; 64];
+    client
+        .send(&report)
+        .await
+        .expect("Failed to send test datagram to Coldcard socket");
+
+    emu.stop().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires Coldcard bundle + /dev/uhid"]
+async fn coldcard_discoverable_via_uhid_bridge() {
+    if !bundle_installed(WalletType::Coldcard) || !uhid_available() {
+        eprintln!("SKIP: Coldcard bundle not installed or /dev/uhid not available");
+        return;
+    }
+
+    let socket_path = std::path::PathBuf::from("/tmp/ckcc-simulator.sock");
+    std::fs::remove_file(&socket_path).ok();
+
+    let mut emu = build_coldcard_emulator(&socket_path);
+    emu.start().await.expect("Coldcard start failed");
+
+    use bridge::generic::{BridgeTransport, GenericBridge, GenericBridgeConfig};
+    use bridge::uhid::{COLDCARD_HID_REPORT_DESCRIPTOR, COLDCARD_PID, COLDCARD_VID};
+    use bridge::Bridge;
+
+    let cfg = GenericBridgeConfig::new(
+        COLDCARD_VID,
+        COLDCARD_PID,
+        "Coldcard",
+        COLDCARD_HID_REPORT_DESCRIPTOR,
+        BridgeTransport::UnixDgram {
+            path: socket_path.clone(),
+        },
+    );
+    let mut bridge = GenericBridge::new(cfg);
+    let _rx = bridge.start().await.expect("Coldcard bridge start failed");
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify hidapi discovers the virtual device with correct VID/PID.
+    let api = hidapi::HidApi::new().expect("hidapi init failed");
+    let found = api
+        .device_list()
+        .any(|d| d.vendor_id() == COLDCARD_VID && d.product_id() == COLDCARD_PID);
+    assert!(
+        found,
+        "Coldcard should be discoverable via hidapi after bridge start"
+    );
+
+    // Verify the product string matches what sigvault-desktop expects.
+    let has_name = api.device_list().any(|d| {
+        d.vendor_id() == COLDCARD_VID
+            && d.product_id() == COLDCARD_PID
+            && d.product_string()
+                .map(|s| s.contains("Coldcard"))
+                .unwrap_or(false)
+    });
+    assert!(
+        has_name,
+        "Coldcard UHID device should have 'Coldcard' in product string"
+    );
+
+    bridge.stop().await.unwrap();
     emu.stop().await.unwrap();
 }

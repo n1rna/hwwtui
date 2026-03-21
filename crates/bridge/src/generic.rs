@@ -7,6 +7,7 @@
 //!
 //! ```text
 //!  Desktop App (hidapi) ↔ /dev/uhid (UHID) ↔ GenericBridge ↔ TCP ↔ Emulator
+//!  Desktop App (hidapi) ↔ /dev/uhid (UHID) ↔ GenericBridge ↔ UnixDgram ↔ Emulator
 //! ```
 
 use std::path::PathBuf;
@@ -29,8 +30,14 @@ use crate::{Bridge, Direction, InterceptedMessage};
 pub enum BridgeTransport {
     /// TCP socket at `host:port`.
     Tcp { host: String, port: u16 },
-    /// Unix-domain socket at the given path.
+    /// Unix-domain STREAM socket at the given path.
     Unix { path: PathBuf },
+    /// Unix-domain DGRAM socket at the given path (e.g. Coldcard simulator).
+    ///
+    /// Each send/recv is a complete 64-byte HID report.  No stream framing is
+    /// needed.  On Linux, connecting an unbound DGRAM socket auto-binds it
+    /// with an abstract address so the server can reply.
+    UnixDgram { path: PathBuf },
 }
 
 /// Configuration for a [`GenericBridge`].
@@ -330,6 +337,105 @@ impl Bridge for GenericBridge {
                     }
                 });
             }
+            BridgeTransport::UnixDgram { path } => {
+                let tx = intercept_tx;
+                let path_clone = path.clone();
+
+                tokio::spawn(async move {
+                    loop {
+                        // Wait for the first output report from the host
+                        // before connecting — the socket may not exist yet.
+                        let first_report = tokio::select! {
+                            report = uhid_read_rx.recv() => report,
+                            _ = &mut shutdown_a_rx => { return; }
+                        };
+                        let Some(first_report) = first_report else { return; };
+
+                        debug!("UnixDgram relay: connecting to {}", path_clone.display());
+                        let dgram = match tokio::net::UnixDatagram::unbound() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                error!("UnixDgram relay: failed to create socket: {e}");
+                                running.store(false, Ordering::SeqCst);
+                                return;
+                            }
+                        };
+                        if let Err(e) = dgram.connect(&path_clone) {
+                            error!("UnixDgram relay: connect failed: {e}");
+                            running.store(false, Ordering::SeqCst);
+                            return;
+                        }
+
+                        // Strip the 0x00 report-ID byte that UHID prepends.
+                        let payload = if !first_report.is_empty() && first_report[0] == 0x00 {
+                            first_report[1..].to_vec()
+                        } else {
+                            first_report.clone()
+                        };
+                        let _ = tx.send(InterceptedMessage::new(
+                            Direction::HostToDevice, &first_report, None,
+                        ));
+                        if dgram.send(&payload).await.is_err() {
+                            continue;
+                        }
+
+                        // Wrap the socket in an Arc so both tasks can share it.
+                        use std::sync::Arc;
+                        let dgram = Arc::new(dgram);
+                        let dgram_read = Arc::clone(&dgram);
+
+                        let tx2 = tx.clone();
+                        let uhid_write = uhid_write_tx.clone();
+                        let read_task = tokio::spawn(async move {
+                            let mut buf = vec![0u8; report_size];
+                            loop {
+                                match dgram_read.recv(&mut buf).await {
+                                    Ok(n) => {
+                                        // Pad short datagrams to report_size.
+                                        let mut data = buf[..n].to_vec();
+                                        data.resize(report_size, 0);
+                                        let _ = tx2.send(InterceptedMessage::new(
+                                            Direction::DeviceToHost, &data, None,
+                                        ));
+                                        if uhid_write.send(data).is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        debug!("UnixDgram read: {e}");
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+
+                        // Forward subsequent host→emulator reports until the
+                        // read task finishes (socket error) or shutdown fires.
+                        loop {
+                            if read_task.is_finished() {
+                                break;
+                            }
+                            tokio::select! {
+                                report = uhid_read_rx.recv() => {
+                                    let Some(report) = report else { return; };
+                                    let _ = tx.send(InterceptedMessage::new(
+                                        Direction::HostToDevice, &report, None,
+                                    ));
+                                    let payload = if !report.is_empty() && report[0] == 0x00 {
+                                        report[1..].to_vec()
+                                    } else {
+                                        report
+                                    };
+                                    if dgram.send(&payload).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                _ = &mut shutdown_a_rx => { return; }
+                            }
+                        }
+                    }
+                });
+            }
         }
 
         Ok(intercept_rx)
@@ -405,13 +511,29 @@ mod tests {
         let cfg = GenericBridgeConfig::new(
             COLDCARD_VID,
             COLDCARD_PID,
-            "Coldcard (emulated)",
+            "Coldcard",
             COLDCARD_HID_REPORT_DESCRIPTOR,
             BridgeTransport::Unix {
-                path: PathBuf::from("/tmp/ckcc-simulator.sock"),
+                path: PathBuf::from("/tmp/test.sock"),
             },
         );
         assert!(matches!(cfg.transport, BridgeTransport::Unix { .. }));
+    }
+
+    #[test]
+    fn config_unix_dgram_transport() {
+        let cfg = GenericBridgeConfig::new(
+            COLDCARD_VID,
+            COLDCARD_PID,
+            "Coldcard",
+            COLDCARD_HID_REPORT_DESCRIPTOR,
+            BridgeTransport::UnixDgram {
+                path: PathBuf::from("/tmp/ckcc-simulator.sock"),
+            },
+        );
+        assert!(matches!(cfg.transport, BridgeTransport::UnixDgram { .. }));
+        assert_eq!(cfg.name, "Coldcard");
+        assert_eq!(cfg.report_size, 64);
     }
 
     #[test]

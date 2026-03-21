@@ -628,9 +628,9 @@ impl App {
             DeviceKind::Coldcard => Some(GenericBridgeConfig::new(
                 COLDCARD_VID,
                 COLDCARD_PID,
-                "Coldcard (emulated)",
+                "Coldcard",
                 COLDCARD_HID_REPORT_DESCRIPTOR,
-                BridgeTransport::Unix {
+                BridgeTransport::UnixDgram {
                     path: PathBuf::from("/tmp/ckcc-simulator.sock"),
                 },
             )),
