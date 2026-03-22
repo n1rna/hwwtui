@@ -21,3 +21,6 @@ tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
 bitbox-api = { version = "0.9.0", default-features = false, features = ["simulator", "usb", "multithreaded", "tokio"] }
 coldcard = "0.12"
+bitcoin = { version = "0.32", features = ["base64", "serde", "std"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+hex = "0.4"
