@@ -1,58 +1,73 @@
 # hwwtui
 
-A terminal UI lab for running, controlling, and inspecting hardware wallet emulators. Manages emulator processes for six wallet types (Trezor, BitBox02, Coldcard, Specter DIY, Ledger, Jade), captures their output, and provides debug-link interaction -- all from a single terminal.
+A terminal UI lab for running, controlling, and inspecting hardware wallet emulators. Manages emulator processes for six wallet types (Trezor, BitBox02, Coldcard, Specter DIY, Ledger, Jade), captures their output, and bridges them to desktop wallet applications via UHID virtual HID devices.
 
 ```
  ┌─ hwwtui ──────────────────────────────────────────────────────────┐
- │ [Trezor ▶]  [BitBox02 ■]  [Coldcard ○]  [Specter ○]  ...       │
- ├──────────────────────────────┬──────────────────────────────────── │
- │  Trezor — Screen             │  Method Calls                      │
- │                               │   → Emulator started (UDP :21324) │
- │    Confirm Transaction        │   → Debug link connected           │
- │    Send 0.001 BTC             │   → Initialize → Features (42 B)  │
- │    to bc1q...                 │   → LoadDevice → Success           │
- │                               │                                    │
- │   [Cancel]  [Confirm]         │                                    │
- ├───────────────────────────────┤────────────────────────────────────┤
- │  Controls                     │  Firmware Log                      │
- │  [s] Start  [x] Stop  [r]    │  trezor.loop DEBUG spawn...        │
- │  [d] Download  [D] Remove     │  trezor.workflow DEBUG start...    │
- │  [Enter] Confirm  [Esc]       │                                    │
- │                               │                                    │
- │  Bundle:     v2.8.9 (40 MB)  │                                    │
- │  Status:     Running          │                                    │
- │  Transport:  UDP :21324       │                                    │
- │  UHID:       —                │                                    │
- ├───────────────────────────────┴────────────────────────────────────┤
- │  Raw Messages                                                      │
- │  >> 3f 23 23 00 00 ...  << 3f 23 23 00 11 ...                     │
- └────────────────────────────────────────────────────────────────────┘
+ │ [Trezor ▶]  [BitBox02 ●]  [Coldcard ■]  [Specter ○]  ...       │
+ ├─────────────────────────────┬─────────────────────────────────────┤
+ │ [1] Controls [2] Screen [3] Keys │ [5] Methods [6] Firmware [7] Raw [8] Bridge │
+ │                             │                                     │
+ │  Bundle:     v2.8.9 (40MB) │  → Emulator started (UDP :21324)   │
+ │  Status:     Running ●     │  → Debug link connected             │
+ │  Transport:  UDP :21324    │  → Initialize → Features (42 B)    │
+ │  Bridge:     UHID ●        │  → LoadDevice → Success             │
+ │                             │  → GetPublicKey → xpub6Cat...      │
+ │  Device actions             │                                     │
+ │  [s] Start  [x] Stop       │                                     │
+ │  [r] Reset  [d] Download   │                                     │
+ ├─────────────────────────────┴─────────────────────────────────────┤
+ │ Status: Running ● | Transport: UDP :21324 | Bridge: UHID ● | ... │
+ └───────────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
 
 ```bash
+# Install udev rules (one-time, for UHID bridge)
+just setup-udev
+
 # Build
 just build
 
 # Run (downloads bundles on first use via [d] key)
 just run
 
-# Or run directly
-cargo run -p hwwtui
-
 # Tail logs in another terminal
 just logs
 ```
 
-### First-time Trezor workflow
+### Per-wallet workflows
 
-1. Launch `just run`
-2. Press `d` to download the Trezor firmware bundle from GitHub Releases
-3. Press `s` to start the emulator
-4. Press `l` to load a test seed (12-word "abandon" mnemonic)
-5. Press `Enter` to confirm any on-screen prompts
-6. The emulator is now ready -- external apps (e.g. trezor-client, sigvault-desktop) can connect via UDP :21324
+**Trezor** (UDP, no bridge needed):
+1. Press `d` to download bundle, `s` to start
+2. Press `l` to load test seed
+3. Desktop apps connect via UDP :21324
+
+**BitBox02** (TCP + UHID bridge):
+1. Press `d` to download, `s` to start (UHID bridge auto-starts)
+2. Press `l` to initialize with test mnemonic
+3. Desktop apps discover via hidapi (VID=0x03EB PID=0x2403)
+
+**Coldcard** (DGRAM Unix socket + UHID bridge):
+1. Press `d` to download, `s` to start (UHID bridge auto-starts)
+2. Simulator starts pre-seeded — no initialization needed
+3. Desktop apps discover via hidapi (VID=0xD13E PID=0xCC10)
+
+**Ledger** (Docker/Speculos, direct TCP):
+1. Press `d` to download, `s` to start (runs Speculos in Docker)
+2. Starts pre-seeded with test mnemonic — no initialization needed
+3. Desktop apps connect directly via TCP :9999
+
+**Specter DIY** (MicroPython, direct TCP):
+1. Press `d` to download, `s` to start
+2. Auto-initializes with test mnemonic on startup
+3. Desktop apps connect directly via TCP :8789
+
+**Jade** (Docker/QEMU, direct TCP):
+1. Press `d` to download, `s` to start (runs QEMU ESP32 in Docker)
+2. Starts uninitialized — needs PIN setup via desktop app
+3. Desktop apps connect directly via TCP :30121
 
 ### Environment variables
 
@@ -68,35 +83,71 @@ just logs
 | Key | Action |
 |-----|--------|
 | `Tab` / `Shift+Tab` | Cycle device tabs |
+| `1` `2` `3` | Switch left panel tab (Controls / Screen / Keys) |
+| `5` `6` `7` `8` | Switch right panel tab (Methods / Firmware / Raw / Bridge) |
 | `s` | Start selected emulator |
 | `x` | Stop selected emulator |
 | `r` | Reset (stop + start) |
 | `d` | Download firmware bundle for selected device |
 | `D` (Shift+D) | Remove installed bundle |
-| `i` | Send Initialize command (Trezor only) |
-| `l` | Load test seed onto emulator (Trezor only) |
-| `Enter` | Confirm / press YES via debug link |
-| `Esc` | Cancel / press NO via debug link |
-| `Up/Down/Left/Right` | Swipe gesture via debug link |
+| `i` | Send Initialize command (Trezor) |
+| `l` | Load test seed / initialize (Trezor, BitBox02) |
+| `Enter` | Confirm / press YES via debug link (Trezor) |
+| `Esc` | Cancel / press NO via debug link (Trezor) |
+| `↑↓←→` | Swipe gesture via debug link (Trezor) |
 | `q` / `Ctrl-C` | Quit (stops all emulators) |
+
+Mouse: click on device tabs or panel tabs to switch.
 
 ## Supported Wallets
 
-| Wallet | Transport | Emulator Type | Screen | Desktop App Integration |
-|--------|-----------|---------------|--------|------------------------|
-| **Trezor** | UDP :21324 | Native unix (MicroPython + C + Rust) | Debug link (text) | Works (UDP auto-discovery) |
-| **BitBox02** | TCP :15423 | Native simulator (C + Rust) | Not available | Needs UHID bridge |
-| **Coldcard** | Unix socket | MicroPython unix port | Not available | Needs UHID bridge |
-| **Specter DIY** | TCP :8789 | MicroPython unix port + SDL2 | Not available | Needs UHID bridge |
-| **Ledger** | TCP :9999 | Speculos (QEMU ARM) via Docker | Not available | Needs UHID bridge |
-| **Jade** | TCP :30121 | QEMU Xtensa via Docker | Not available | Needs UHID bridge |
+| Wallet | Transport | Bridge | Discovery | Desktop App |
+|--------|-----------|--------|-----------|-------------|
+| **Trezor** | UDP :21324 | None (direct UDP) | trezor-client | Working |
+| **BitBox02** | TCP :15423 | UHID (VID 03EB) | hidapi | Working |
+| **Coldcard** | Unix DGRAM | UHID (VID D13E) | hidapi | Working |
+| **Specter DIY** | TCP :8789 | None (direct TCP) | TCP connect | Working |
+| **Ledger** | TCP :9999 (Docker) | None (direct TCP) | TCP connect | Working |
+| **Jade** | TCP :30121 (Docker) | None (direct TCP) | TCP connect | Working |
+
+## UHID Bridge
+
+For wallets that use HID communication (BitBox02, Coldcard), hwwtui creates virtual USB HID devices via Linux UHID (`/dev/uhid`). Desktop wallet applications discover these devices through `hidapi` exactly as they would discover real hardware.
+
+```
+Desktop App (hidapi) ↔ /dev/hidraw (kernel) ↔ /dev/uhid (UHID) ↔ GenericBridge ↔ Emulator
+```
+
+### Permissions
+
+Run `just setup-udev` to install udev rules for `/dev/uhid` and hidraw devices. This is a one-time setup that:
+- Grants access to `/dev/uhid` for virtual device creation
+- Sets permissions on hidraw devices for BitBox02, Coldcard, Ledger, and Trezor VID/PIDs
+- Works with both real hardware and UHID virtual devices
+
+## Building Bundles
+
+Each wallet's emulator is packaged as a downloadable bundle. To build locally:
+
+```bash
+# Build in Docker (recommended)
+just bundle-test trezor
+just bundle-test bitbox02
+just bundle-test coldcard
+
+# Install locally
+just bundle-install trezor
+
+# Ledger/Jade build on host (they use Docker internally)
+./scripts/build/ledger-local.sh
+./scripts/build/jade-local.sh
+```
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) -- workspace structure, data flow, key types
-- [Wallet Reference](docs/WALLETS.md) -- per-wallet details, transport, build deps, known issues
-- [Development Guide](docs/DEVELOPMENT.md) -- building, testing, CI, adding new wallets
-- [TODO / Known Issues](docs/TODO.md) -- planned work and current limitations
+- [Architecture](docs/ARCHITECTURE.md) — workspace structure, data flow, key types
+- [Wallet Reference](docs/WALLETS.md) — per-wallet details, transport, build deps, known issues
+- [Development Guide](docs/DEVELOPMENT.md) — building, testing, CI, adding new wallets
 
 ## License
 
