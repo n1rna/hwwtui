@@ -527,9 +527,23 @@ impl App {
                             // Ignore SIGPIPE — the RST probes cause broken pipe
                             // signals that crash MicroPython's asyncio event loop
                             // with OSError: 4 (EINTR).
+                            // Monkey-patch Specter.setup to skip the interactive
+                            // keystore selection and inject a test mnemonic.
                             let launch_cmd =
                                 "import platform; platform.enable_usb(); \
-                                 import pyb; pyb.USB_VCP().init(); \
+                                 from keystore.ram import RAMKeyStore; \
+                                 from specter import Specter; \
+                                 _orig = Specter.setup\n\
+async def _s(self):\n \
+ self.keystore = RAMKeyStore()\n \
+ await self.keystore.init(self.gui.show_screen(), self.gui.show_loader)\n \
+ self.keystore.set_mnemonic('abandon ' * 11 + 'about', '')\n \
+ self.load_network(self.path, self.network)\n \
+ self.init_apps()\n \
+ self.current_menu = self.mainmenu\n \
+ for h in self.hosts: await h.enable()\n \
+ await self.main()\n\
+Specter.setup = _s; \
                                  from main import main; main(network='test')"
                                 .to_string();
 
