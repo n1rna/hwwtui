@@ -2,25 +2,6 @@
 
 A terminal UI lab for running, controlling, and inspecting hardware wallet emulators. Manages emulator processes for six wallet types (Trezor, BitBox02, Coldcard, Specter DIY, Ledger, Jade), captures their output, and bridges them to desktop wallet applications via UHID virtual HID devices.
 
-```
- ┌─ hwwtui ──────────────────────────────────────────────────────────┐
- │ [Trezor ▶]  [BitBox02 ●]  [Coldcard ■]  [Specter ○]  ...       │
- ├─────────────────────────────┬─────────────────────────────────────┤
- │ [1] Controls [2] Screen [3] Keys │ [5] Methods [6] Firmware [7] Raw [8] Bridge │
- │                             │                                     │
- │  Bundle:     v2.8.9 (40MB) │  → Emulator started (UDP :21324)   │
- │  Status:     Running ●     │  → Debug link connected             │
- │  Transport:  UDP :21324    │  → Initialize → Features (42 B)    │
- │  Bridge:     UHID ●        │  → LoadDevice → Success             │
- │                             │  → GetPublicKey → xpub6Cat...      │
- │  Device actions             │                                     │
- │  [s] Start  [x] Stop       │                                     │
- │  [r] Reset  [d] Download   │                                     │
- ├─────────────────────────────┴─────────────────────────────────────┤
- │ Status: Running ● | Transport: UDP :21324 | Bridge: UHID ● | ... │
- └───────────────────────────────────────────────────────────────────┘
-```
-
 ## Quick Start
 
 ```bash
