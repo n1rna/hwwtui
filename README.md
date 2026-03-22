@@ -1,5 +1,11 @@
 # hwwtui
 
+[![CI](https://github.com/n1rna/hwwtui/actions/workflows/ci.yaml/badge.svg)](https://github.com/n1rna/hwwtui/actions/workflows/ci.yaml)
+[![Rust](https://1tt.dev/badge/rust-1.80+-orange.svg?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![Wallets](https://1tt.dev/badge/wallets-6-blue.svg?style=flat)](https://github.com/n1rna/hwwtui#supported-wallets)
+[![License](https://1tt.dev/badge/license-MIT-green.svg)](https://github.com/n1rna/hwwtui/blob/main/LICENSE)
+[![Linux](https://1tt.dev/badge/platform-linux-lightgrey.svg?logo=linux&logoColor=white)](https://github.com/n1rna/hwwtui)
+
 A terminal UI lab for running, controlling, and inspecting hardware wallet emulators. Manages emulator processes for six wallet types (Trezor, BitBox02, Coldcard, Specter DIY, Ledger, Jade), captures their output, and bridges them to desktop wallet applications via UHID virtual HID devices.
 
 ## Quick Start
