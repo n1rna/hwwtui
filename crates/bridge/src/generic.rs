@@ -298,20 +298,15 @@ impl Bridge for GenericBridge {
                         let uhid_write = uhid_write_tx.clone();
                         let read_task = tokio::spawn(async move {
                             let mut buf = vec![0u8; report_size];
-                            loop {
-                                match read_half.read_exact(&mut buf).await {
-                                    Ok(_) => {
-                                        let data = buf.clone();
-                                        let _ = tx2.send(InterceptedMessage::new(
-                                            Direction::DeviceToHost,
-                                            &data,
-                                            None,
-                                        ));
-                                        if uhid_write.send(data).is_err() {
-                                            break;
-                                        }
-                                    }
-                                    Err(_) => break,
+                            while read_half.read_exact(&mut buf).await.is_ok() {
+                                let data = buf.clone();
+                                let _ = tx2.send(InterceptedMessage::new(
+                                    Direction::DeviceToHost,
+                                    &data,
+                                    None,
+                                ));
+                                if uhid_write.send(data).is_err() {
+                                    break;
                                 }
                             }
                         });

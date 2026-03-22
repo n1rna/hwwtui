@@ -10,7 +10,7 @@ use std::sync::Arc;
 use bridge::generic::{BridgeTransport, GenericBridge, GenericBridgeConfig};
 use bridge::uhid::{
     BITBOX02_HID_REPORT_DESCRIPTOR, BITBOX02_PID, BITBOX02_VID, COLDCARD_HID_REPORT_DESCRIPTOR,
-    COLDCARD_PID, COLDCARD_VID, LEDGER_HID_REPORT_DESCRIPTOR, LEDGER_PID, LEDGER_VID,
+    COLDCARD_PID, COLDCARD_VID,
 };
 use bridge::{Bridge, InterceptedMessage};
 use bundler::{BundleManager, BundleStatus, RemoteBundle};

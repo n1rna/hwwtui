@@ -180,9 +180,9 @@ async fn step3_hid_write_read_through_bridge() {
     msg[5] = b's';
 
     match hid_device.write(&msg) {
-        Ok(n) => eprintln!("HID write: {} bytes", n),
+        Ok(n) => eprintln!("HID write: {n} bytes"),
         Err(e) => {
-            eprintln!("HID write failed: {}", e);
+            eprintln!("HID write failed: {e}");
             bridge.stop().await.unwrap();
             emu.stop().await.unwrap();
             panic!("HID write failed");
@@ -194,7 +194,7 @@ async fn step3_hid_write_read_through_bridge() {
     match hid_device.read_timeout(&mut buf, 3000) {
         Ok(0) => eprintln!("HID read: 0 bytes (no response within 3s)"),
         Ok(n) => eprintln!("HID read: {} bytes, first 8: {:02x?}", n, &buf[..n.min(8)]),
-        Err(e) => eprintln!("HID read error: {}", e),
+        Err(e) => eprintln!("HID read error: {e}"),
     }
 
     eprintln!("PASS: HID write/read through UHID bridge completed");
@@ -237,19 +237,19 @@ async fn step4_coldcard_crate_open() {
 
         // First, detect serials
         let serials = cc_api.detect();
-        eprintln!("  detect() = {:?}", serials);
+        eprintln!("  detect() = {serials:?}");
 
         match serials {
             Ok(sns) if !sns.is_empty() => {
                 eprintln!("  Opening serial: {:?}", sns[0]);
                 match cc_api.open(&sns[0], None) {
-                    Ok((cc, xpub)) => {
-                        eprintln!("  Coldcard opened! xpub={:?}", xpub);
+                    Ok((_cc, xpub)) => {
+                        eprintln!("  Coldcard opened! xpub={xpub:?}");
                         Ok(true)
                     }
                     Err(e) => {
-                        eprintln!("  open() failed: {:?}", e);
-                        Err(format!("{:?}", e))
+                        eprintln!("  open() failed: {e:?}");
+                        Err(format!("{e:?}"))
                     }
                 }
             }
@@ -258,8 +258,8 @@ async fn step4_coldcard_crate_open() {
                 Err("no serials".to_string())
             }
             Err(e) => {
-                eprintln!("  detect() failed: {:?}", e);
-                Err(format!("{:?}", e))
+                eprintln!("  detect() failed: {e:?}");
+                Err(format!("{e:?}"))
             }
         }
     })
@@ -267,8 +267,8 @@ async fn step4_coldcard_crate_open() {
 
     match &result {
         Ok(Ok(true)) => eprintln!("\n*** PASS ***"),
-        Ok(Err(e)) => eprintln!("\n*** FAIL: {} ***", e),
-        Err(e) => eprintln!("\n*** FAIL: task error: {} ***", e),
+        Ok(Err(e)) => eprintln!("\n*** FAIL: {e} ***"),
+        Err(e) => eprintln!("\n*** FAIL: task error: {e} ***"),
         _ => eprintln!("\n*** FAIL ***"),
     }
 
