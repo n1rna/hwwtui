@@ -48,7 +48,7 @@ if ! docker image inspect "${IMAGE_NAME}" &>/dev/null; then
 fi
 
 echo "Starting Jade QEMU emulator (serial_port=${SERIAL_PORT})..."
-docker run --rm -it \
+docker run --rm \
     -p "${SERIAL_PORT}:30121" \
     "${IMAGE_NAME}"
 RUNNER
