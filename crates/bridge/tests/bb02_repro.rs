@@ -7,19 +7,24 @@
 //!
 //! Run: cargo test -p bridge --test bb02_repro -- --ignored --nocapture
 
-use std::path::PathBuf;
-use std::time::Duration;
 use bridge::generic::{BridgeTransport, GenericBridge, GenericBridgeConfig};
 use bridge::uhid::{BITBOX02_HID_REPORT_DESCRIPTOR, BITBOX02_PID, BITBOX02_VID};
 use bridge::Bridge;
 use bundler::BundleManager;
 use emulators::{Emulator, EmulatorStatus, TransportConfig, WalletType};
+use std::path::PathBuf;
+use std::time::Duration;
 
 fn bb02_bridge_config() -> GenericBridgeConfig {
     GenericBridgeConfig::new(
-        BITBOX02_VID, BITBOX02_PID, "BitBox02",
+        BITBOX02_VID,
+        BITBOX02_PID,
+        "BitBox02",
         BITBOX02_HID_REPORT_DESCRIPTOR,
-        BridgeTransport::Tcp { host: "127.0.0.1".into(), port: 15423 },
+        BridgeTransport::Tcp {
+            host: "127.0.0.1".into(),
+            port: 15423,
+        },
     )
 }
 
@@ -29,10 +34,17 @@ fn new_emulator() -> Box<dyn Emulator> {
     let bundle_dir = bin.parent().unwrap().to_path_buf();
     Box::new(
         emulators::generic::GenericEmulator::new(
-            WalletType::BitBox02, bin, bundle_dir,
+            WalletType::BitBox02,
+            bin,
+            bundle_dir,
             PathBuf::from("/tmp/hwwtui-repro-bb02"),
-            TransportConfig::Tcp { host: "127.0.0.1".into(), port: 15423 },
-        ).with_arg("--port").with_arg("15423"),
+            TransportConfig::Tcp {
+                host: "127.0.0.1".into(),
+                port: 15423,
+            },
+        )
+        .with_arg("--port")
+        .with_arg("15423"),
     )
 }
 
@@ -75,11 +87,22 @@ async fn simulate_l_key(emu: &mut Box<dyn Emulator>, bridge: &mut Option<Generic
             .unwrap();
         let result = rt.block_on(async {
             let nc = Box::new(bitbox_api::NoiseConfigNoCache {});
-            let bb = bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_simulator(None, nc)
-                .await.map_err(|e| format!("connect: {e:?}"))?;
-            let pb = bb.unlock_and_pair().await.map_err(|e| format!("pair: {e:?}"))?;
-            let paired = pb.wait_confirm().await.map_err(|e| format!("confirm: {e:?}"))?;
-            paired.restore_from_mnemonic().await.map_err(|e| format!("restore: {e:?}"))?;
+            let bb =
+                bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_simulator(None, nc)
+                    .await
+                    .map_err(|e| format!("connect: {e:?}"))?;
+            let pb = bb
+                .unlock_and_pair()
+                .await
+                .map_err(|e| format!("pair: {e:?}"))?;
+            let paired = pb
+                .wait_confirm()
+                .await
+                .map_err(|e| format!("confirm: {e:?}"))?;
+            paired
+                .restore_from_mnemonic()
+                .await
+                .map_err(|e| format!("restore: {e:?}"))?;
             Ok::<(), String>(())
         });
         let _ = tx.send(result);
@@ -108,23 +131,34 @@ async fn simulate_desktop_discovery() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     eprintln!("[desktop] Discovering via hidapi...");
     let api = hidapi::HidApi::new().unwrap();
-    let dev_info = api.device_list()
+    let dev_info = api
+        .device_list()
         .find(|d| d.vendor_id() == BITBOX02_VID && d.product_id() == BITBOX02_PID)
         .expect("[desktop] BitBox02 not found in HID list");
-    let hid_device = dev_info.open_device(&api).expect("[desktop] Can't open hidraw");
+    let hid_device = dev_info
+        .open_device(&api)
+        .expect("[desktop] Can't open hidraw");
     eprintln!("[desktop] Opened {:?}", dev_info.path());
 
     eprintln!("[desktop] from_hid_device...");
     let nc = Box::new(bitbox_api::NoiseConfigNoCache {});
-    let bb = bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_hid_device(hid_device, nc)
-        .await.expect("[desktop] from_hid_device failed");
+    let bb =
+        bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_hid_device(hid_device, nc)
+            .await
+            .expect("[desktop] from_hid_device failed");
     eprintln!("[desktop] unlock_and_pair...");
     let pb = bb.unlock_and_pair().await.expect("[desktop] unlock failed");
     eprintln!("[desktop] wait_confirm...");
     let paired = pb.wait_confirm().await.expect("[desktop] confirm failed");
     eprintln!("[desktop] device_info...");
-    let info = paired.device_info().await.expect("[desktop] device_info failed");
-    eprintln!("[desktop] name={:?} initialized={}", info.name, info.initialized);
+    let info = paired
+        .device_info()
+        .await
+        .expect("[desktop] device_info failed");
+    eprintln!(
+        "[desktop] name={:?} initialized={}",
+        info.name, info.initialized
+    );
     assert!(info.initialized, "Device should be initialized");
 }
 
@@ -139,16 +173,16 @@ async fn repro_full_tui_then_desktop_flow() {
     simulate_l_key(&mut emu, &mut bridge).await;
 
     // User opens sigvault-desktop and triggers discovery
-    let result = tokio::time::timeout(Duration::from_secs(10),
-        simulate_desktop_discovery()
-    ).await;
+    let result = tokio::time::timeout(Duration::from_secs(10), simulate_desktop_discovery()).await;
 
     match result {
         Ok(()) => eprintln!("\n*** PASS ***"),
         Err(_) => panic!("\n*** FAIL: desktop discovery timed out ***"),
     }
 
-    if let Some(mut b) = bridge { b.stop().await.ok(); }
+    if let Some(mut b) = bridge {
+        b.stop().await.ok();
+    }
     emu.stop().await.ok();
 }
 
@@ -164,15 +198,15 @@ async fn repro_with_30s_idle_delay() {
     tokio::time::sleep(Duration::from_secs(30)).await;
     eprintln!("[delay] Done waiting");
 
-    let result = tokio::time::timeout(Duration::from_secs(10),
-        simulate_desktop_discovery()
-    ).await;
+    let result = tokio::time::timeout(Duration::from_secs(10), simulate_desktop_discovery()).await;
 
     match result {
         Ok(()) => eprintln!("\n*** PASS ***"),
         Err(_) => panic!("\n*** FAIL: desktop discovery timed out after 30s idle ***"),
     }
 
-    if let Some(mut b) = bridge { b.stop().await.ok(); }
+    if let Some(mut b) = bridge {
+        b.stop().await.ok();
+    }
     emu.stop().await.ok();
 }

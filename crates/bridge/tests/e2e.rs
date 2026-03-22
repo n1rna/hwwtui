@@ -71,9 +71,9 @@ async fn start_trezor_on(port: u16, profile_suffix: &str) -> Box<dyn Emulator> {
         std::fs::remove_dir_all(&profile).ok();
     }
 
-    let mut emu: Box<dyn Emulator> = Box::new(
-        emulators::trezor::TrezorEmulator::new_with_binary(bin, bundle_dir, profile, port),
-    );
+    let mut emu: Box<dyn Emulator> = Box::new(emulators::trezor::TrezorEmulator::new_with_binary(
+        bin, bundle_dir, profile, port,
+    ));
     emu.start().await.expect("Trezor emulator failed to start");
     assert_eq!(emu.status(), EmulatorStatus::Running);
 
@@ -207,7 +207,10 @@ async fn trezor_get_public_key_returns_valid_xpub() {
     assert!(!resp.is_empty(), "PublicKey response should not be empty");
 
     let xpub = extract_xpub(&resp);
-    assert!(xpub.is_some(), "Should be able to extract xpub from response");
+    assert!(
+        xpub.is_some(),
+        "Should be able to extract xpub from response"
+    );
 
     let xpub = xpub.unwrap();
     assert!(
@@ -272,8 +275,7 @@ async fn trezor_multiple_derivation_paths() {
             .await
             .unwrap_or_else(|e| panic!("GetPublicKey failed for {label}: {e}"));
 
-        let xpub = extract_xpub(&resp)
-            .unwrap_or_else(|| panic!("No xpub in response for {label}"));
+        let xpub = extract_xpub(&resp).unwrap_or_else(|| panic!("No xpub in response for {label}"));
         assert!(
             xpub.starts_with("xpub"),
             "{label}: expected xpub prefix, got {xpub}"
@@ -282,9 +284,18 @@ async fn trezor_multiple_derivation_paths() {
     }
 
     // All three xpubs should be different (different derivation paths).
-    assert_ne!(xpubs[0].1, xpubs[1].1, "m/44' and m/49' xpubs should differ");
-    assert_ne!(xpubs[1].1, xpubs[2].1, "m/49' and m/84' xpubs should differ");
-    assert_ne!(xpubs[0].1, xpubs[2].1, "m/44' and m/84' xpubs should differ");
+    assert_ne!(
+        xpubs[0].1, xpubs[1].1,
+        "m/44' and m/49' xpubs should differ"
+    );
+    assert_ne!(
+        xpubs[1].1, xpubs[2].1,
+        "m/49' and m/84' xpubs should differ"
+    );
+    assert_ne!(
+        xpubs[0].1, xpubs[2].1,
+        "m/44' and m/84' xpubs should differ"
+    );
 
     stop_trezor(emu).await;
 }
@@ -534,9 +545,7 @@ async fn bitbox02_discoverable_via_uhid_bridge() {
 ///
 /// The Coldcard simulator is a MicroPython binary that opens a DGRAM Unix
 /// socket at `/tmp/ckcc-simulator.sock` to communicate with HID clients.
-fn build_coldcard_emulator(
-    socket_path: &std::path::Path,
-) -> Box<dyn Emulator> {
+fn build_coldcard_emulator(socket_path: &std::path::Path) -> Box<dyn Emulator> {
     let mgr = bundle_manager();
     let bin = mgr
         .emulator_binary_path(WalletType::Coldcard)
@@ -600,8 +609,8 @@ async fn coldcard_emulator_starts_and_socket_exists() {
     // Verify DGRAM connectivity: connect an unbound datagram socket and send
     // a 64-byte zero-padded report.  The server won't respond to garbage data,
     // but a successful send proves the socket is live and accepting datagrams.
-    let client = tokio::net::UnixDatagram::unbound()
-        .expect("Failed to create unbound UnixDatagram");
+    let client =
+        tokio::net::UnixDatagram::unbound().expect("Failed to create unbound UnixDatagram");
     client
         .connect(&socket_path)
         .expect("UnixDatagram::connect to Coldcard socket failed");

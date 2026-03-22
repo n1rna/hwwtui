@@ -61,7 +61,12 @@ static CLICK_ZONES: Mutex<Vec<ClickZone>> = Mutex::new(Vec::new());
 
 fn register_zone(x: u16, y: u16, width: u16, action: Action) {
     if let Ok(mut zones) = CLICK_ZONES.lock() {
-        zones.push(ClickZone { x, y, width, action });
+        zones.push(ClickZone {
+            x,
+            y,
+            width,
+            action,
+        });
     }
 }
 
@@ -170,8 +175,7 @@ fn status_indicator(pane: &crate::app::DevicePane) -> String {
 
 fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     let [left_area, right_area] =
-        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .areas(area);
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(area);
 
     render_left_panel(frame, app, left_area);
     render_right_panel(frame, app, right_area);
@@ -270,17 +274,11 @@ fn render_panel_tabs(
 
 // ── Left tab: Controls ────────────────────────────────────────────────────────
 
-fn render_controls_tab(
-    frame: &mut Frame,
-    pane: &crate::app::DevicePane,
-    app: &App,
-    area: Rect,
-) {
+fn render_controls_tab(frame: &mut Frame, pane: &crate::app::DevicePane, app: &App, area: Rect) {
     let is_downloading = matches!(pane.bundle_status, BundleStatus::Downloading { .. });
 
     let (content_area, progress_area) = if is_downloading {
-        let [c, p] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(3)]).areas(area);
+        let [c, p] = Layout::vertical([Constraint::Fill(1), Constraint::Length(3)]).areas(area);
         (c, Some(p))
     } else {
         (area, None)
@@ -785,14 +783,14 @@ fn render_bridge_tab(frame: &mut Frame, pane: &crate::app::DevicePane, area: Rec
             Span::styled(&connection_str, Style::default().fg(Color::White)),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("  Messages intercepted:"),
-        ]),
+        Line::from(vec![Span::raw("  Messages intercepted:")]),
         Line::from(vec![
             Span::raw("    Decoded:  "),
             Span::styled(
                 format!("{method_count}"),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
@@ -882,7 +880,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Span::raw(" Status: "),
         Span::styled(
             format!("{} {status_indicator}", pane.status_str()),
-            Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  |  Transport: "),
         Span::styled(&pane.transport_label, Style::default().fg(Color::White)),

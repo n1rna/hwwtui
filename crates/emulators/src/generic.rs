@@ -214,10 +214,8 @@ impl GenericEmulator {
                                         s.as_raw_fd(),
                                         libc::SOL_SOCKET,
                                         libc::SO_LINGER,
-                                        &linger as *const libc::linger
-                                            as *const libc::c_void,
-                                        std::mem::size_of::<libc::linger>()
-                                            as libc::socklen_t,
+                                        &linger as *const libc::linger as *const libc::c_void,
+                                        std::mem::size_of::<libc::linger>() as libc::socklen_t,
                                     );
                                 }
                             }
@@ -564,9 +562,7 @@ mod tests {
         let handle = std::thread::spawn(move || {
             // Accept up to 3 connections with a short timeout.
             listener.set_nonblocking(false).unwrap();
-            listener
-                .set_nonblocking(false)
-                .ok();
+            listener.set_nonblocking(false).ok();
             for _ in 0..3 {
                 match listener.accept() {
                     Ok((stream, _)) => {
@@ -583,8 +579,9 @@ mod tests {
                             Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
                                 // RST received — expected from our probe.
                             }
-                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-                                || e.kind() == std::io::ErrorKind::TimedOut =>
+                            Err(ref e)
+                                if e.kind() == std::io::ErrorKind::WouldBlock
+                                    || e.kind() == std::io::ErrorKind::TimedOut =>
                             {
                                 // Timeout — connection dropped without data.
                             }

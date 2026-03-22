@@ -71,14 +71,15 @@ async fn bitbox02_simulator_tcp_init_and_device_info() {
     let mut emu = start_bitbox02_emulator().await;
 
     let noise_config = Box::new(bitbox_api::NoiseConfigNoCache {});
-    let bitbox = bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_simulator(
-        None,
-        noise_config,
-    )
-    .await
-    .expect("from_simulator failed");
+    let bitbox =
+        bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_simulator(None, noise_config)
+            .await
+            .expect("from_simulator failed");
 
-    let pairing = bitbox.unlock_and_pair().await.expect("unlock_and_pair failed");
+    let pairing = bitbox
+        .unlock_and_pair()
+        .await
+        .expect("unlock_and_pair failed");
     let paired = pairing.wait_confirm().await.expect("wait_confirm failed");
 
     paired
@@ -88,7 +89,10 @@ async fn bitbox02_simulator_tcp_init_and_device_info() {
 
     let info = paired.device_info().await.expect("device_info failed");
     assert!(info.initialized, "Device should be initialized");
-    eprintln!("PASS: name={:?}, initialized={}", info.name, info.initialized);
+    eprintln!(
+        "PASS: name={:?}, initialized={}",
+        info.name, info.initialized
+    );
 
     drop(paired);
     emu.stop().await.unwrap();
@@ -118,7 +122,10 @@ async fn bitbox02_full_e2e_via_uhid_bridge() {
         .expect("from_simulator failed");
         let pairing = bitbox.unlock_and_pair().await.expect("unlock failed");
         let paired = pairing.wait_confirm().await.expect("confirm failed");
-        paired.restore_from_mnemonic().await.expect("restore failed");
+        paired
+            .restore_from_mnemonic()
+            .await
+            .expect("restore failed");
         let info = paired.device_info().await.expect("device_info failed");
         assert!(info.initialized);
         eprintln!("  Initialized: name={:?}", info.name);
@@ -171,24 +178,35 @@ async fn bitbox02_full_e2e_via_uhid_bridge() {
     eprintln!("Phase 4: bitbox-api via UHID bridge...");
 
     let noise_config = Box::new(bitbox_api::NoiseConfigNoCache {});
-    let bitbox =
-        bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_hid_device(
-            hid_device,
-            noise_config,
-        )
-        .await
-        .expect("from_hid_device failed");
+    let bitbox = bitbox_api::BitBox::<bitbox_api::runtime::TokioRuntime>::from_hid_device(
+        hid_device,
+        noise_config,
+    )
+    .await
+    .expect("from_hid_device failed");
 
     eprintln!("  unlock_and_pair...");
-    let pairing = bitbox.unlock_and_pair().await.expect("unlock failed via UHID");
+    let pairing = bitbox
+        .unlock_and_pair()
+        .await
+        .expect("unlock failed via UHID");
 
     eprintln!("  wait_confirm...");
-    let paired = pairing.wait_confirm().await.expect("confirm failed via UHID");
+    let paired = pairing
+        .wait_confirm()
+        .await
+        .expect("confirm failed via UHID");
 
     eprintln!("  device_info...");
-    let info = paired.device_info().await.expect("device_info failed via UHID");
+    let info = paired
+        .device_info()
+        .await
+        .expect("device_info failed via UHID");
     assert!(info.initialized, "Device should be initialized via UHID");
-    eprintln!("  Device: name={:?}, initialized={}", info.name, info.initialized);
+    eprintln!(
+        "  Device: name={:?}, initialized={}",
+        info.name, info.initialized
+    );
 
     eprintln!("PASS: Full BitBox02 E2E via UHID bridge!");
 

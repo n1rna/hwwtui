@@ -164,13 +164,9 @@ impl Bridge for GenericBridge {
             "Starting GenericBridge"
         );
 
-        let uhid_device = VirtualHidDevice::new(
-            cfg.vid,
-            cfg.pid,
-            &cfg.name,
-            &cfg.report_descriptor,
-        )
-        .with_context(|| format!("Failed to create UHID device '{}'", cfg.name))?;
+        let uhid_device =
+            VirtualHidDevice::new(cfg.vid, cfg.pid, &cfg.name, &cfg.report_descriptor)
+                .with_context(|| format!("Failed to create UHID device '{}'", cfg.name))?;
 
         let (intercept_tx, intercept_rx) = mpsc::unbounded_channel::<InterceptedMessage>();
         let (shutdown_a_tx, mut shutdown_a_rx) = oneshot::channel::<()>();
@@ -239,7 +235,9 @@ impl Bridge for GenericBridge {
                     let handle = tokio::spawn(async move {
                         while let Some(report) = uhid_read_rx.recv().await {
                             let _ = tx.send(InterceptedMessage::new(
-                                Direction::HostToDevice, &report, None,
+                                Direction::HostToDevice,
+                                &report,
+                                None,
                             ));
                             let payload = if !report.is_empty() && report[0] == 0x00 {
                                 &report[1..]
@@ -266,7 +264,9 @@ impl Bridge for GenericBridge {
                             report = uhid_read_rx.recv() => report,
                             _ = &mut shutdown_a_rx => { return; }
                         };
-                        let Some(first_report) = first_report else { return; };
+                        let Some(first_report) = first_report else {
+                            return;
+                        };
 
                         debug!("Unix relay: connecting to {}", path_clone.display());
                         let stream = match tokio::net::UnixStream::connect(&path_clone).await {
@@ -285,7 +285,9 @@ impl Bridge for GenericBridge {
                             &first_report
                         };
                         let _ = tx.send(InterceptedMessage::new(
-                            Direction::HostToDevice, &first_report, None,
+                            Direction::HostToDevice,
+                            &first_report,
+                            None,
                         ));
                         if write_half.write_all(payload).await.is_err() {
                             continue;
@@ -301,7 +303,9 @@ impl Bridge for GenericBridge {
                                     Ok(_) => {
                                         let data = buf.clone();
                                         let _ = tx2.send(InterceptedMessage::new(
-                                            Direction::DeviceToHost, &data, None,
+                                            Direction::DeviceToHost,
+                                            &data,
+                                            None,
                                         ));
                                         if uhid_write.send(data).is_err() {
                                             break;
@@ -349,17 +353,17 @@ impl Bridge for GenericBridge {
                             report = uhid_read_rx.recv() => report,
                             _ = &mut shutdown_a_rx => { return; }
                         };
-                        let Some(first_report) = first_report else { return; };
+                        let Some(first_report) = first_report else {
+                            return;
+                        };
 
                         debug!("UnixDgram relay: connecting to {}", path_clone.display());
 
                         // Bind to an explicit path so the simulator can send
                         // responses back (unbound sockets get abstract autobind
                         // addresses that MicroPython can't sendto).
-                        let client_path = format!(
-                            "/tmp/hwwtui-cc-bridge-{}.sock",
-                            std::process::id()
-                        );
+                        let client_path =
+                            format!("/tmp/hwwtui-cc-bridge-{}.sock", std::process::id());
                         let _ = std::fs::remove_file(&client_path);
                         let dgram = match tokio::net::UnixDatagram::bind(&client_path) {
                             Ok(s) => s,
@@ -382,7 +386,9 @@ impl Bridge for GenericBridge {
                             first_report.clone()
                         };
                         let _ = tx.send(InterceptedMessage::new(
-                            Direction::HostToDevice, &first_report, None,
+                            Direction::HostToDevice,
+                            &first_report,
+                            None,
                         ));
                         if dgram.send(&payload).await.is_err() {
                             continue;
@@ -404,7 +410,9 @@ impl Bridge for GenericBridge {
                                         let mut data = buf[..n].to_vec();
                                         data.resize(report_size, 0);
                                         let _ = tx2.send(InterceptedMessage::new(
-                                            Direction::DeviceToHost, &data, None,
+                                            Direction::DeviceToHost,
+                                            &data,
+                                            None,
                                         ));
                                         if uhid_write.send(data).is_err() {
                                             break;

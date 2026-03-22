@@ -148,9 +148,7 @@ where
                             use config::DeviceKind;
                             match app.selected_pane().kind {
                                 DeviceKind::Trezor => app.dispatch(Action::LoadTestSeed),
-                                DeviceKind::BitBox02 => {
-                                    app.dispatch(Action::InitializeBitBox02)
-                                }
+                                DeviceKind::BitBox02 => app.dispatch(Action::InitializeBitBox02),
                                 _ => {}
                             }
                         }
@@ -233,11 +231,7 @@ fn check_uhid_access() {
         return;
     }
 
-    if std::fs::OpenOptions::new()
-        .write(true)
-        .open(uhid)
-        .is_err()
-    {
+    if std::fs::OpenOptions::new().write(true).open(uhid).is_err() {
         eprintln!(
             "Warning: /dev/uhid is not writable. UHID bridge will be unavailable.\n\
              Run:  just setup-udev\n\

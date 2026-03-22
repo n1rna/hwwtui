@@ -501,7 +501,9 @@ fn extract_string_field(data: &[u8], field_num: u32) -> Option<String> {
             pos += len_bytes;
             let end = pos + str_len as usize;
             if end <= data.len() {
-                return std::str::from_utf8(&data[pos..end]).ok().map(|s| s.to_string());
+                return std::str::from_utf8(&data[pos..end])
+                    .ok()
+                    .map(|s| s.to_string());
             }
         }
 

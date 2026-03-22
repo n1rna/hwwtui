@@ -513,10 +513,8 @@ impl App {
                             let usb_py = src_dir.join("hosts/usb.py");
                             if let Ok(content) = std::fs::read_to_string(&usb_py) {
                                 if content.contains("\"enabled\": False") {
-                                    let patched = content.replace(
-                                        "\"enabled\": False",
-                                        "\"enabled\": True",
-                                    );
+                                    let patched =
+                                        content.replace("\"enabled\": False", "\"enabled\": True");
                                     std::fs::write(&usb_py, patched).ok();
                                 }
                             }
@@ -529,8 +527,7 @@ impl App {
                             // with OSError: 4 (EINTR).
                             // Monkey-patch Specter.setup to skip the interactive
                             // keystore selection and inject a test mnemonic.
-                            let launch_cmd =
-                                "import platform; platform.enable_usb(); \
+                            let launch_cmd = "import platform; platform.enable_usb(); \
                                  from keystore.ram import RAMKeyStore; \
                                  from specter import Specter; \
                                  _orig = Specter.setup\n\
@@ -704,8 +701,7 @@ Specter.setup = _s; \
                         "UHID bridge failed for {} (non-fatal): {e:#}",
                         self.panes[idx].label
                     );
-                    self.panes[idx]
-                        .push_method("!", format!("UHID bridge unavailable: {e:#}"));
+                    self.panes[idx].push_method("!", format!("UHID bridge unavailable: {e:#}"));
                 }
             }
         }
@@ -1170,10 +1166,8 @@ Specter.setup = _s; \
 
         match result {
             Ok(()) => {
-                self.panes[idx].push_method(
-                    "→",
-                    "BitBox02 initialized (mnemonic restored)".to_string(),
-                );
+                self.panes[idx]
+                    .push_method("→", "BitBox02 initialized (mnemonic restored)".to_string());
                 info!("BitBox02 simulator initialized successfully");
             }
             Err(e) => {
@@ -1203,8 +1197,7 @@ Specter.setup = _s; \
                 self.panes[idx].push_method("→", "UHID bridge restarted".to_string());
             }
             Err(e) => {
-                self.panes[idx]
-                    .push_method("!", format!("UHID bridge restart failed: {e:#}"));
+                self.panes[idx].push_method("!", format!("UHID bridge restart failed: {e:#}"));
             }
         }
     }
