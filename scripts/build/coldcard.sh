@@ -31,6 +31,17 @@ cd "${FIRMWARE_DIR}/unix"
 
 make setup || true  # setup's 'tools' target may fail on frozen_content but creates needed symlinks
 make ngu-setup
+
+# Patch the simulator version string BEFORE compilation.
+# The unix simulator hardcodes '5.x.x' in variant/version.py which gets
+# frozen into the binary.  We patch it to match the firmware tag.
+FW_TAG=$(cd "${FIRMWARE_DIR}" && git describe --tags --always 2>/dev/null || echo "unknown")
+FW_VERSION=$(echo "${FW_TAG}" | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+[A-Z]*' || echo "6.0.0")
+FW_DATE=$(echo "${FW_TAG}" | grep -oP '^\d{4}-\d{2}-\d{2}' || date -u +%Y-%m-%d)
+echo "==> Patching variant/version.py: ${FW_VERSION} (${FW_DATE})"
+sed -i "s|return '2023-02-31', '5.x.x', '230231195308'|return '${FW_DATE}', '${FW_VERSION}', '$(date -u +%y%m%d%H%M%S)'|" \
+    "${FIRMWARE_DIR}/unix/variant/version.py"
+
 make
 
 # Locate the Coldcard-patched micropython binary.
