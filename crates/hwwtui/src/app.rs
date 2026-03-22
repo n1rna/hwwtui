@@ -524,6 +524,9 @@ impl App {
                             // Launch micropython with USB VCP enabled and main app.
                             // The VCP must be initialized before main() starts
                             // because USB is disabled by default in Specter.
+                            // Ignore SIGPIPE — the RST probes cause broken pipe
+                            // signals that crash MicroPython's asyncio event loop
+                            // with OSError: 4 (EINTR).
                             let launch_cmd =
                                 "import platform; platform.enable_usb(); \
                                  import pyb; pyb.USB_VCP().init(); \
@@ -542,6 +545,9 @@ impl App {
                             )
                             .with_env("MICROPYPATH", &micropypath)
                             .with_env("SDL_VIDEODRIVER", "dummy")
+                            // Specter's VCP TCP server crashes after repeated
+                            // RST probes — use gentle FIN-based probing.
+                            .with_gentle_probe()
                             .with_arg("-c")
                             .with_arg(&launch_cmd);
                             pane.emulator = Some(Box::new(emu));

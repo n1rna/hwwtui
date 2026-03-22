@@ -97,6 +97,11 @@ pub struct GenericEmulator {
     /// How long to wait for the transport to become reachable.
     startup_timeout: Duration,
 
+    /// Use a gentle TCP probe (normal close) instead of RST.
+    /// Some emulators (e.g. Specter) close their TCP server after
+    /// receiving too many RST packets.
+    gentle_probe: bool,
+
     /// Handle to the running child process, if any.
     child: Option<Child>,
 
@@ -125,6 +130,7 @@ impl GenericEmulator {
             env_vars: Vec::new(),
             args: Vec::new(),
             startup_timeout: DEFAULT_STARTUP_TIMEOUT,
+            gentle_probe: false,
             child: None,
             status: EmulatorStatus::Stopped,
             output_lines: Arc::new(Mutex::new(VecDeque::new())),
@@ -147,6 +153,13 @@ impl GenericEmulator {
     /// Override the startup timeout (default: [`DEFAULT_STARTUP_TIMEOUT`]).
     pub fn with_startup_timeout(mut self, timeout: Duration) -> Self {
         self.startup_timeout = timeout;
+        self
+    }
+
+    /// Use a gentle TCP probe (normal FIN close) instead of RST.
+    /// Some emulators crash or close their server after repeated RST probes.
+    pub fn with_gentle_probe(mut self) -> Self {
+        self.gentle_probe = true;
         self
     }
 
@@ -177,32 +190,38 @@ impl GenericEmulator {
         match &self.transport {
             TransportConfig::Tcp { host, port } => {
                 let addr_str = format!("{host}:{port}");
+                let gentle = self.gentle_probe;
                 tokio::task::spawn_blocking(move || {
                     use std::net::TcpStream;
-                    use std::os::unix::io::AsRawFd;
                     let stream = TcpStream::connect_timeout(
                         &addr_str.parse().unwrap(),
                         PROBE_CONNECT_TIMEOUT,
                     );
                     match stream {
                         Ok(s) => {
-                            // Set SO_LINGER with timeout=0 so the socket sends
-                            // RST instead of FIN on close.  This prevents
-                            // emulators (e.g. BitBox02) from seeing a full
-                            // client connect/disconnect cycle.
-                            let linger = libc::linger {
-                                l_onoff: 1,
-                                l_linger: 0,
-                            };
-                            unsafe {
-                                libc::setsockopt(
-                                    s.as_raw_fd(),
-                                    libc::SOL_SOCKET,
-                                    libc::SO_LINGER,
-                                    &linger as *const libc::linger as *const libc::c_void,
-                                    std::mem::size_of::<libc::linger>() as libc::socklen_t,
-                                );
+                            if !gentle {
+                                // Set SO_LINGER with timeout=0 so the socket sends
+                                // RST instead of FIN on close.  This prevents
+                                // emulators (e.g. BitBox02) from seeing a full
+                                // client connect/disconnect cycle.
+                                use std::os::unix::io::AsRawFd;
+                                let linger = libc::linger {
+                                    l_onoff: 1,
+                                    l_linger: 0,
+                                };
+                                unsafe {
+                                    libc::setsockopt(
+                                        s.as_raw_fd(),
+                                        libc::SOL_SOCKET,
+                                        libc::SO_LINGER,
+                                        &linger as *const libc::linger
+                                            as *const libc::c_void,
+                                        std::mem::size_of::<libc::linger>()
+                                            as libc::socklen_t,
+                                    );
+                                }
                             }
+                            // gentle mode: normal FIN close (just drop the socket)
                             true
                         }
                         Err(_) => false,
