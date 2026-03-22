@@ -975,7 +975,7 @@ Specter.setup = _s; \
 
         // Throttle: only poll every 5 ticks.
         pane.screen_poll_ticks = pane.screen_poll_ticks.wrapping_add(1);
-        if pane.screen_poll_ticks % 5 != 0 {
+        if !pane.screen_poll_ticks.is_multiple_of(5) {
             return;
         }
 
