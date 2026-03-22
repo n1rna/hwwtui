@@ -634,16 +634,9 @@ impl App {
                     path: PathBuf::from("/tmp/ckcc-simulator.sock"),
                 },
             )),
-            DeviceKind::Ledger => Some(GenericBridgeConfig::new(
-                LEDGER_VID,
-                LEDGER_PID,
-                "Ledger (emulated)",
-                LEDGER_HID_REPORT_DESCRIPTOR,
-                BridgeTransport::Tcp {
-                    host: "127.0.0.1".into(),
-                    port: 9999,
-                },
-            )),
+            // Ledger: no UHID bridge needed — sigvault-desktop discovers
+            // the Speculos simulator directly via TCP (LedgerSimulator::try_connect).
+            DeviceKind::Ledger => None,
             _ => None,
         };
 

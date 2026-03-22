@@ -52,11 +52,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 APDU_PORT="${APDU_PORT:-9999}"
-API_PORT="${API_PORT:-5000}"
-MODEL="${MODEL:-nanos2}"  # nanos2 = Nano S Plus
+API_PORT="${API_PORT:-5001}"
+MODEL="${MODEL:-nanosp}"  # nanosp = Nano S Plus
 
 echo "Starting Speculos (model=${MODEL}, apdu_port=${APDU_PORT}, api_port=${API_PORT})..."
-docker run --rm -it \
+docker run --rm \
     -v "${SCRIPT_DIR}/bitcoin-app.elf:/app/bitcoin.elf:ro" \
     -p "${APDU_PORT}:9999" \
     -p "${API_PORT}:5000" \
