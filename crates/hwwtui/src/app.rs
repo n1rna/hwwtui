@@ -507,6 +507,29 @@ impl App {
                                 bin_path.parent().unwrap_or(bin_path.as_ref()).to_path_buf();
                             let src_dir = bundle_dir.join("src");
                             let micropypath = src_dir.display().to_string();
+
+                            // Patch USB host to be enabled by default (normally
+                            // disabled and requires user interaction to enable).
+                            let usb_py = src_dir.join("hosts/usb.py");
+                            if let Ok(content) = std::fs::read_to_string(&usb_py) {
+                                if content.contains("\"enabled\": False") {
+                                    let patched = content.replace(
+                                        "\"enabled\": False",
+                                        "\"enabled\": True",
+                                    );
+                                    std::fs::write(&usb_py, patched).ok();
+                                }
+                            }
+
+                            // Launch micropython with USB VCP enabled and main app.
+                            // The VCP must be initialized before main() starts
+                            // because USB is disabled by default in Specter.
+                            let launch_cmd =
+                                "import platform; platform.enable_usb(); \
+                                 import pyb; pyb.USB_VCP().init(); \
+                                 from main import main; main(network='test')"
+                                .to_string();
+
                             let emu = GenericEmulator::new(
                                 WalletType::Specter,
                                 bin_path,
@@ -517,7 +540,10 @@ impl App {
                                     port: 8789,
                                 },
                             )
-                            .with_env("MICROPYPATH", &micropypath);
+                            .with_env("MICROPYPATH", &micropypath)
+                            .with_env("SDL_VIDEODRIVER", "dummy")
+                            .with_arg("-c")
+                            .with_arg(&launch_cmd);
                             pane.emulator = Some(Box::new(emu));
                             pane.transport_label = "TCP :8789".to_string();
                         }
