@@ -162,32 +162,102 @@ pub struct WalletConfig {
 
 // ── HID report descriptors ────────────────────────────────────────────────────
 //
-// Static byte sequences the kernel uses to enumerate a virtual HID
-// device. Identical to the constants currently in
-// `crates/bridge/src/uhid.rs` — Phase 1c moves them out of there.
-// Kept here so consumers don't have to import from two crates.
+// Static byte sequences the kernel parses to enumerate a virtual
+// HID device. Each descriptor declares a 64-byte Input + 64-byte
+// Output report (no report ID), which is the universal layout for
+// hardware-wallet host-side comms. The wrapper bytes (Usage Page,
+// Usage, Collection) differ per vendor — FIDO Alliance for
+// Trezor / Coldcard, vendor-defined for BitBox02 / Ledger — because
+// that's how the host's HID descriptor parser routes the report.
+//
+// These were previously duplicated in `crates/bridge/src/uhid.rs`;
+// Phase 1c consolidates them here as the canonical source.
 
-// Kept around in case a future test wants to stand up a virtual
-// Trezor HID slot for the host-app side of the wire — today Trezor
-// uses pure UDP so this is unused. `#[allow]` silences the dead-code
-// warning until that test arrives.
+/// HID report descriptor for Trezor T / Trezor One (FIDO transport).
+/// Usage Page: FIDO Alliance (0xF1D0), Usage 1 (U2F/CTAP HID).
+pub const TREZOR_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xd0, 0xf1, // Usage Page (FIDO Alliance = 0xF1D0)
+    0x09, 0x01, // Usage (1)
+    0xa1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xc0, // End Collection
+];
+
+/// HID report descriptor for BitBox02.
+/// Usage Page: Vendor-defined (0xFFFF), Usage 1.
+pub const BITBOX02_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xff, 0xff, // Usage Page (Vendor Defined = 0xFFFF)
+    0x09, 0x01, // Usage (1)
+    0xa1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xc0, // End Collection
+];
+
+/// HID report descriptor for Coldcard.
+/// Usage Page: FIDO Alliance (0xF1D0), Usage 1.
+pub const COLDCARD_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xd0, 0xf1, // Usage Page (FIDO Alliance = 0xF1D0)
+    0x09, 0x01, // Usage (1)
+    0xa1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xc0, // End Collection
+];
+
+/// HID report descriptor for Ledger Nano S Plus / Nano X.
+/// Usage Page: Vendor-defined (0xFFA0), Usage 1.
+/// Currently unused — Ledger is reached over TCP via Speculos
+/// rather than UHID — but exported for symmetry with the others.
 #[allow(dead_code)]
-const TREZOR_HID_REPORT_DESCRIPTOR: &[u8] = &[
-    0x06, 0xd0, 0xf1, 0x09, 0x01, 0xa1, 0x01, 0x09, 0x20, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08,
-    0x95, 0x40, 0x81, 0x02, 0x09, 0x21, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x40, 0x91,
-    0x02, 0xc0,
-];
-
-const BITBOX02_HID_REPORT_DESCRIPTOR: &[u8] = &[
-    0x06, 0xff, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x40,
-    0x09, 0x01, 0x81, 0x02, 0x09, 0x01, 0x91, 0x02, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00,
-];
-
-const COLDCARD_HID_REPORT_DESCRIPTOR: &[u8] = &[
-    0x06, 0xff, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x40,
-    0x09, 0x01, 0x81, 0x02, 0x09, 0x01, 0x91, 0x02, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00,
+pub const LEDGER_HID_REPORT_DESCRIPTOR: &[u8] = &[
+    0x06, 0xa0, 0xff, // Usage Page (Vendor Defined = 0xFFA0)
+    0x09, 0x01, // Usage (1)
+    0xa1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Input Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Output Report Data)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x26, 0xff, 0x00, //   Logical Maximum (255)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xc0, // End Collection
 ];
 
 // ── Per-wallet configs ────────────────────────────────────────────────────────

@@ -262,10 +262,42 @@ impl GenericEmulator {
                 .await
                 .unwrap_or(false)
             }
-            TransportConfig::Udp { .. } => {
-                // UDP probing is handled by TrezorEmulator; this type should
-                // never be constructed with a UDP transport.
-                false
+            TransportConfig::Udp { host, port } => {
+                // UDP probe: bind an ephemeral local socket and send a
+                // zero-byte datagram to the target. If the port is open
+                // (something is listening), the OS won't immediately
+                // return ICMP port-unreachable on the next recv — we
+                // treat a read timeout as "port is up, emulator
+                // started". An immediate error means nothing's there.
+                let host = host.clone();
+                let port = *port;
+                tokio::task::spawn_blocking(move || {
+                    use std::net::UdpSocket;
+                    let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
+                        return false;
+                    };
+                    sock.set_read_timeout(Some(Duration::from_millis(100))).ok();
+                    if sock.send_to(&[], format!("{host}:{port}")).is_err() {
+                        return false;
+                    }
+                    let mut buf = [0u8; 1];
+                    match sock.recv_from(&mut buf) {
+                        Ok(_) => true,
+                        Err(e)
+                            if e.kind() == std::io::ErrorKind::WouldBlock
+                                || e.kind() == std::io::ErrorKind::TimedOut =>
+                        {
+                            // Port is open but emulator sent nothing
+                            // — fine. Trezor doesn't respond to empty
+                            // payloads; the probe only checks that
+                            // something is bound to the address.
+                            true
+                        }
+                        Err(_) => false,
+                    }
+                })
+                .await
+                .unwrap_or(false)
             }
         }
     }
